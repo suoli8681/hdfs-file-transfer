@@ -1,0 +1,24 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: hdfs-file-transfer-agent
+  main:
+    allow-circular-references: true
+
+hdfs:
+  transfer:
+    server:
+      base-url: http://localhost:8080
+      heartbeat-interval: 10
+    agent:
+      max-parallel-tasks: 3
+      log-batch-size: 50
+      log-collect-interval: 5
+      retry-enabled: true
+      retry-max-count: 3
+      work-dir: /opt/hdfs-transfer/agent/work
+      hadoop-home: /opt/hadoop
+      # Task timeout in hours, 0 = no timeout
+      task-timeout-hours: 0
