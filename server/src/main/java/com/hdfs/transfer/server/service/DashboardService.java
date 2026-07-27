@@ -1,9 +1,9 @@
 package com.hdfs.transfer.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.hdfs.transfer.server.entity.MigrationTaskEntity;
+import com.hdfs.transfer.server.entity.TaskInstanceEntity;
 import com.hdfs.transfer.server.entity.AgentNodeEntity;
-import com.hdfs.transfer.server.mapper.MigrationTaskMapper;
+import com.hdfs.transfer.server.mapper.TaskInstanceMapper;
 import com.hdfs.transfer.server.mapper.AgentNodeMapper;
 import org.springframework.stereotype.Service;
 import java.util.HashMap;
@@ -13,34 +13,36 @@ import java.util.Map;
 @Service
 public class DashboardService {
 
-    private final MigrationTaskMapper taskMapper;
+    private final TaskInstanceMapper instanceMapper;
     private final AgentNodeMapper agentNodeMapper;
 
-    public DashboardService(MigrationTaskMapper taskMapper, AgentNodeMapper agentNodeMapper) {
-        this.taskMapper = taskMapper;
+    public DashboardService(TaskInstanceMapper instanceMapper, AgentNodeMapper agentNodeMapper) {
+        this.instanceMapper = instanceMapper;
         this.agentNodeMapper = agentNodeMapper;
     }
 
     public Map<String, Object> getOverview() {
         Map<String, Object> result = new HashMap<>();
 
-        List<MigrationTaskEntity> allTasks = taskMapper.selectList(null);
-        long totalTasks = allTasks.size();
-        long runningTasks = allTasks.stream().filter(t -> "running".equals(t.getStatus())).count();
-        long successTasks = allTasks.stream().filter(t -> "success".equals(t.getStatus())).count();
-        long failedTasks = allTasks.stream().filter(t -> "failed".equals(t.getStatus())).count();
-        long stoppedTasks = allTasks.stream().filter(t -> "stopped".equals(t.getStatus())).count();
-        long killedTasks = allTasks.stream().filter(t -> "killed".equals(t.getStatus())).count();
+        List<TaskInstanceEntity> allInstances = instanceMapper.selectList(null);
+        long totalInstances = allInstances.size();
+        long pendingTasks = allInstances.stream().filter(t -> "pending".equals(t.getStatus()) || "dispatching".equals(t.getStatus())).count();
+        long runningTasks = allInstances.stream().filter(t -> "running".equals(t.getStatus()) || "retrying".equals(t.getStatus())).count();
+        long successTasks = allInstances.stream().filter(t -> "success".equals(t.getStatus())).count();
+        long failedTasks = allInstances.stream().filter(t -> "failed".equals(t.getStatus())).count();
+        long stoppedTasks = allInstances.stream().filter(t -> "stopped".equals(t.getStatus())).count();
+        long killedTasks = allInstances.stream().filter(t -> "killed".equals(t.getStatus())).count();
 
-        long totalTransferred = allTasks.stream()
+        long totalTransferred = allInstances.stream()
                 .filter(t -> t.getCompletedSize() != null)
-                .mapToLong(MigrationTaskEntity::getCompletedSize)
+                .mapToLong(TaskInstanceEntity::getCompletedSize)
                 .sum();
 
         List<AgentNodeEntity> agents = agentNodeMapper.selectList(null);
         long onlineAgents = agents.stream().filter(a -> "online".equals(a.getStatus())).count();
 
-        result.put("totalTasks", totalTasks);
+        result.put("totalTasks", totalInstances);
+        result.put("pendingTasks", pendingTasks);
         result.put("runningTasks", runningTasks);
         result.put("successTasks", successTasks);
         result.put("failedTasks", failedTasks);
@@ -52,10 +54,10 @@ public class DashboardService {
         return result;
     }
 
-    public List<MigrationTaskEntity> getRecentTasks(int limit) {
-        return taskMapper.selectList(
-                new LambdaQueryWrapper<MigrationTaskEntity>()
-                        .orderByDesc(MigrationTaskEntity::getCreateTime)
+    public List<TaskInstanceEntity> getRecentTasks(int limit) {
+        return instanceMapper.selectList(
+                new LambdaQueryWrapper<TaskInstanceEntity>()
+                        .orderByDesc(TaskInstanceEntity::getCreateTime)
                         .last("LIMIT " + limit));
     }
 }

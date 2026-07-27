@@ -18,6 +18,7 @@ const routes = [
       { path: 'clusters/add', name: 'ClusterAdd', component: () => import('../views/ClusterForm.vue'), meta: { title: '新增集群' } },
       { path: 'clusters/:id/edit', name: 'ClusterEdit', component: () => import('../views/ClusterForm.vue'), meta: { title: '编辑集群' } },
       { path: 'tasks', name: 'Tasks', component: () => import('../views/TaskList.vue'), meta: { title: '迁移任务' } },
+      { path: 'task-instances', name: 'TaskInstances', component: () => import('../views/TaskInstanceList.vue'), meta: { title: '任务实例' } },
       { path: 'tasks/add', name: 'TaskAdd', component: () => import('../views/TaskForm.vue'), meta: { title: '新建任务' } },
       { path: 'tasks/:id/edit', name: 'TaskEdit', component: () => import('../views/TaskForm.vue'), meta: { title: '编辑任务' } },
       { path: 'agents', name: 'Agents', component: () => import('../views/AgentList.vue'), meta: { title: 'Agent管理' } },

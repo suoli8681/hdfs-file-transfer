@@ -20,7 +20,20 @@
         </el-select>
       </el-form-item>
       <el-form-item label="源路径" prop="sourcePath">
-        <el-input v-model="form.sourcePath" placeholder="如: /data/source" />
+        <el-input v-model="form.sourcePath" placeholder="如: /data/source 或 /data/${YYYYMMDD-1}" />
+        <div style="font-size:12px;color:#909399;margin-top:4px;line-height:1.8">
+          支持日期表达式，生成实例时自动替换为实际日期：
+          <el-popover placement="bottom-start" :width="420" trigger="hover">
+            <template #reference>
+              <el-link type="primary" :underline="false" style="font-size:12px">查看示例</el-link>
+            </template>
+            <el-table :data="dateExprExamples" size="small" border>
+              <el-table-column prop="expr" label="表达式" width="180" />
+              <el-table-column prop="unit" label="偏移单位" width="80" />
+              <el-table-column prop="example" label="示例" />
+            </el-table>
+          </el-popover>
+        </div>
       </el-form-item>
       <el-form-item label="目标集群" prop="targetCluster">
         <el-select v-model="form.targetCluster" filterable placeholder="选择目标集群" style="width:100%">
@@ -61,6 +74,19 @@ const submitting = ref(false)
 const clusters = ref([])
 const agents = ref([])
 const formRef = ref(null)
+
+const dateExprExamples = [
+  { expr: '${YYYYMMDD}', unit: '—', example: '20260727' },
+  { expr: '${YYYYMMDD-1}', unit: '天', example: '20260726' },
+  { expr: '${YYYY-MM-DD}', unit: '—', example: '2026-07-27' },
+  { expr: '${YYYY-MM-DD+1}', unit: '天', example: '2026-07-28' },
+  { expr: '${YYYYMMDDHH}', unit: '—', example: '2026072717' },
+  { expr: '${YYYYMMDDHH-1}', unit: '小时', example: '2026072716' },
+  { expr: '${YYYYMMDDHHmm}', unit: '—', example: '202607271730' },
+  { expr: '${YYYYMMDDHHmm-1}', unit: '分钟', example: '202607271729' },
+  { expr: '${YYYYMMDDHHmmss}', unit: '—', example: '20260727173025' },
+  { expr: '${YYYYMMDDHHmmss-1}', unit: '秒', example: '20260727173024' }
+]
 
 const requiredMsg = (label) => { return { required: true, message: '请选择' + label, trigger: 'change' } }
 const rules = {

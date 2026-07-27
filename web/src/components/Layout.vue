@@ -24,6 +24,10 @@
           <el-icon><List /></el-icon>
           <span>迁移任务</span>
         </el-menu-item>
+        <el-menu-item index="/task-instances">
+          <el-icon><List /></el-icon>
+          <span>任务实例</span>
+        </el-menu-item>
         <el-menu-item index="/agents">
           <el-icon><Monitor /></el-icon>
           <span>Agent管理</span>

@@ -1,10 +1,10 @@
 export function statusType(status) {
-  const map = { draft: 'info', pending: 'warning', running: 'warning', success: 'success', failed: 'danger', stopped: 'info', killed: 'danger', retrying: 'warning', dispatching: 'warning' }
+  const map = { draft: 'info', online: 'success', offline: 'info', pending: 'warning', running: 'warning', success: 'success', failed: 'danger', stopped: 'info', killed: 'danger', retrying: 'warning', dispatching: 'warning' }
   return map[status] || 'info'
 }
 
 export function statusLabel(status) {
-  const map = { draft: '草稿', pending: '待执行', running: '运行中', success: '已完成', failed: '失败', stopped: '已停止', killed: '已终止', retrying: '重试中', dispatching: '派发中' }
+  const map = { draft: '草稿', online: '上线', offline: '下线', pending: '待执行', running: '运行中', success: '已完成', failed: '失败', stopped: '已停止', killed: '已终止', retrying: '重试中', dispatching: '派发中' }
   return map[status] || status
 }
 

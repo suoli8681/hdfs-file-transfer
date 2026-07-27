@@ -14,10 +14,9 @@
     <el-row :gutter="20">
       <el-col :span="16">
         <el-card>
-          <template #header><span>最近任务</span></template>
+          <template #header><span>最近实例</span></template>
           <el-table :data="recentTasks" stripe size="small" style="width: 100%">
-            <el-table-column prop="taskName" label="任务名称" />
-            <el-table-column prop="sourcePath" label="源路径" show-overflow-tooltip />
+            <el-table-column prop="instanceName" label="实例名称" show-overflow-tooltip />
             <el-table-column prop="status" label="状态" width="100">
               <template #default="{ row }">
                 <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
@@ -50,12 +49,12 @@ import { getAgentList } from '../api/agent'
 import { statusType, statusLabel } from '../utils'
 
 const cards = ref([
-  { label: '总任务数', value: 0 },
+  { label: '总实例数', value: 0 },
+  { label: '待执行', value: 0 },
   { label: '运行中', value: 0 },
   { label: '已完成', value: 0 },
   { label: '失败', value: 0 },
   { label: '已停止', value: 0 },
-  { label: '已终止', value: 0 },
   { label: '已迁移数据', value: '0 B' },
   { label: 'Agent在线', value: 0 }
 ])
@@ -69,11 +68,11 @@ onMounted(async () => {
   try {
     const overview = await getOverview()
     cards.value[0].value = overview.totalTasks || 0
-    cards.value[1].value = overview.runningTasks || 0
-    cards.value[2].value = overview.successTasks || 0
-    cards.value[3].value = overview.failedTasks || 0
-    cards.value[4].value = overview.stoppedTasks || 0
-    cards.value[5].value = overview.killedTasks || 0
+    cards.value[1].value = overview.pendingTasks || 0
+    cards.value[2].value = overview.runningTasks || 0
+    cards.value[3].value = overview.successTasks || 0
+    cards.value[4].value = overview.failedTasks || 0
+    cards.value[5].value = overview.stoppedTasks || 0
     const bytes = overview.totalTransferredBytes || 0
     cards.value[6].value = bytes > 1073741824 ? (bytes / 1073741824).toFixed(2) + ' GB' : (bytes / 1048576).toFixed(2) + ' MB'
     cards.value[7].value = overview.onlineAgents || 0

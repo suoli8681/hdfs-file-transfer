@@ -4,13 +4,13 @@
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span>校验结果</span>
         <div>
-          <el-input v-model="taskName" placeholder="任务名称" style="width:150px;margin-right:10px" size="small" clearable />
+          <el-input v-model="taskName" placeholder="实例名称" style="width:150px;margin-right:10px" size="small" clearable />
           <el-button type="primary" size="small" @click="fetchData">查询</el-button>
         </div>
       </div>
     </template>
     <el-table :data="list" stripe v-loading="loading" style="width:100%">
-      <el-table-column prop="taskName" label="任务名称" width="180" />
+      <el-table-column prop="taskName" label="实例名称" width="220" />
       <el-table-column prop="verifyStatus" label="校验状态" width="100">
         <template #default="{ row }">
           <el-tag :type="row.verifyStatus === 'match' ? 'success' : row.verifyStatus === 'mismatch' ? 'danger' : 'info'" size="small">
@@ -36,7 +36,7 @@
       </el-table-column>
       <el-table-column prop="createTime" label="校验时间" width="160" />
     </el-table>
-    <el-pagination v-if="total > 0" v-model:current-page="pageNum" :page-size="pageSize" :total="total" layout="prev,pager,next" @current-change="fetchData" style="margin-top:15px;justify-content:center" />
+    <el-pagination v-if="total > 0" v-model:current-page="pageNum" v-model:page-size="pageSize" :total="total" :page-sizes="[10, 20, 50, 100]" layout="total,sizes,prev,pager,next" @current-change="fetchData" @size-change="fetchData" style="margin-top:15px;justify-content:flex-end" />
   </el-card>
 </template>
 

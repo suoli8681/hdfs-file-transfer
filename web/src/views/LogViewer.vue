@@ -22,7 +22,7 @@
         <span>{{ log.content }}</span>
       </div>
     </div>
-    <el-pagination v-if="total > 0" v-model:current-page="pageNum" :page-size="pageSize" :total="total" layout="prev,pager,next" @current-change="fetchLogs" style="margin-top:10px;justify-content:center" />
+    <el-pagination v-if="total > 0" v-model:current-page="pageNum" v-model:page-size="pageSize" :total="total" :page-sizes="[10, 20, 50, 100]" layout="total,sizes,prev,pager,next" @current-change="fetchLogs" @size-change="fetchLogs" style="margin-top:10px;justify-content:flex-end" />
   </el-card>
 </template>
 

@@ -30,7 +30,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination v-if="total > 0" v-model:current-page="pageNum" :page-size="pageSize" :total="total" layout="prev,pager,next" @current-change="fetchData" style="margin-top:15px;justify-content:center" />
+    <el-pagination v-if="total > 0" v-model:current-page="pageNum" v-model:page-size="pageSize" :total="total" :page-sizes="[10, 20, 50, 100]" layout="total,sizes,prev,pager,next" @current-change="fetchData" @size-change="fetchData" style="margin-top:15px;justify-content:flex-end" />
 
     <el-dialog v-model="formVisible" :title="isEdit ? '编辑用户' : '添加用户'" width="500px" destroy-on-close>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">

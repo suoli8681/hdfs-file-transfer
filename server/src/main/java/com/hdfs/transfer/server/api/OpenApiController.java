@@ -45,16 +45,34 @@ public class OpenApiController {
         return ApiResponse.success(migrationTaskService.getById(id));
     }
 
-    @PostMapping("/tasks/{id}/start")
-    public ApiResponse startTask(@PathVariable Long id) {
-        boolean ok = migrationTaskService.start(id);
-        return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+    @PostMapping("/tasks/{id}/online")
+    public ApiResponse onlineTask(@PathVariable Long id) {
+        try {
+            boolean ok = migrationTaskService.online(id);
+            return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+        } catch (RuntimeException e) {
+            return ApiResponse.error(400, e.getMessage());
+        }
     }
 
-    @PostMapping("/tasks/{id}/stop")
-    public ApiResponse stopTask(@PathVariable Long id) {
-        boolean ok = migrationTaskService.stop(id);
-        return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+    @PostMapping("/tasks/{id}/offline")
+    public ApiResponse offlineTask(@PathVariable Long id) {
+        try {
+            boolean ok = migrationTaskService.offline(id);
+            return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+        } catch (RuntimeException e) {
+            return ApiResponse.error(400, e.getMessage());
+        }
+    }
+
+    @PostMapping("/tasks/{id}/execute")
+    public ApiResponse executeTask(@PathVariable Long id) {
+        try {
+            boolean ok = migrationTaskService.execute(id);
+            return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+        } catch (RuntimeException e) {
+            return ApiResponse.error(400, e.getMessage());
+        }
     }
 
     @GetMapping("/tasks/{id}/verify")

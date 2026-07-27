@@ -27,6 +27,9 @@ request.interceptors.request.use(
 // Response interceptor: extract data, handle errors
 request.interceptors.response.use(
   (response) => {
+    if (response.config.responseType === 'blob') {
+      return response
+    }
     const res = response.data
     if (res.code !== 200) {
       console.error('API Error:', res.message)

@@ -1,9 +1,8 @@
 package com.hdfs.transfer.server.service;
 
-import com.hdfs.transfer.common.dto.TaskDTO;
-import com.hdfs.transfer.server.entity.MigrationTaskEntity;
+import com.hdfs.transfer.server.entity.TaskInstanceEntity;
 import com.hdfs.transfer.server.entity.AgentNodeEntity;
-import com.hdfs.transfer.server.mapper.MigrationTaskMapper;
+import com.hdfs.transfer.server.mapper.TaskInstanceMapper;
 import com.hdfs.transfer.server.mapper.AgentNodeMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +20,7 @@ public class TaskDispatchService {
     private static final Logger log = LoggerFactory.getLogger(TaskDispatchService.class);
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final MigrationTaskMapper taskMapper;
+    private final TaskInstanceMapper instanceMapper;
     private final AgentNodeMapper agentNodeMapper;
 
     @Value("${hdfs.transfer.max-concurrent-tasks:10}")
@@ -30,8 +29,8 @@ public class TaskDispatchService {
     @Value("${hdfs.transfer.dispatch-timeout-seconds:120}")
     private int dispatchTimeoutSeconds;
 
-    public TaskDispatchService(MigrationTaskMapper taskMapper, AgentNodeMapper agentNodeMapper) {
-        this.taskMapper = taskMapper;
+    public TaskDispatchService(TaskInstanceMapper instanceMapper, AgentNodeMapper agentNodeMapper) {
+        this.instanceMapper = instanceMapper;
         this.agentNodeMapper = agentNodeMapper;
     }
 
@@ -39,78 +38,71 @@ public class TaskDispatchService {
     public void dispatchPendingTasks() {
         recoverStuckDispatchingTasks();
 
-        List<MigrationTaskEntity> pendingTasks = taskMapper.selectList(
-                new LambdaQueryWrapper<MigrationTaskEntity>()
-                        .in(MigrationTaskEntity::getStatus, "pending", "retrying")
-                        .orderByAsc(MigrationTaskEntity::getPriority)
+        List<TaskInstanceEntity> pendingInstances = instanceMapper.selectList(
+                new LambdaQueryWrapper<TaskInstanceEntity>()
+                        .in(TaskInstanceEntity::getStatus, "pending", "retrying")
+                        .orderByAsc(TaskInstanceEntity::getPriority)
                         .last("LIMIT 20"));
 
-        for (MigrationTaskEntity task : pendingTasks) {
-            if (!canDispatch(task)) {
+        for (TaskInstanceEntity instance : pendingInstances) {
+            if (!canDispatch(instance)) {
                 continue;
             }
-            task.setStatus("dispatching");
-            task.setLastExecTime(LocalDateTime.now().format(DTF));
-            taskMapper.updateById(task);
-            log.info("Dispatched task: {} to agent: {}", task.getTaskName(), task.getAgentId());
+            instance.setStatus("dispatching");
+            instance.setLastExecTime(LocalDateTime.now().format(DTF));
+            instanceMapper.updateById(instance);
+            log.info("Dispatched instance: {} to agent: {}", instance.getInstanceName(), instance.getAgentId());
         }
     }
 
     private void recoverStuckDispatchingTasks() {
-        List<MigrationTaskEntity> dispatchingTasks = taskMapper.selectList(
-                new LambdaQueryWrapper<MigrationTaskEntity>()
-                        .eq(MigrationTaskEntity::getStatus, "dispatching"));
+        List<TaskInstanceEntity> dispatchingInstances = instanceMapper.selectList(
+                new LambdaQueryWrapper<TaskInstanceEntity>()
+                        .eq(TaskInstanceEntity::getStatus, "dispatching"));
         LocalDateTime cutoff = LocalDateTime.now().minusSeconds(dispatchTimeoutSeconds);
-        for (MigrationTaskEntity task : dispatchingTasks) {
-            if (task.getLastExecTime() == null) {
-                task.setStatus("pending");
-                taskMapper.updateById(task);
-                log.warn("Task {} had no lastExecTime, reset to pending", task.getTaskName());
+        for (TaskInstanceEntity instance : dispatchingInstances) {
+            if (instance.getLastExecTime() == null) {
+                instance.setStatus("pending");
+                instanceMapper.updateById(instance);
+                log.warn("Instance {} had no lastExecTime, reset to pending", instance.getInstanceName());
                 continue;
             }
             try {
-                LocalDateTime execTime = LocalDateTime.parse(task.getLastExecTime(), DTF);
+                LocalDateTime execTime = LocalDateTime.parse(instance.getLastExecTime(), DTF);
                 if (execTime.isBefore(cutoff)) {
-                    task.setStatus("pending");
-                    taskMapper.updateById(task);
-                    log.warn("Task {} stuck in dispatching for over {}s, reset to pending",
-                            task.getTaskName(), dispatchTimeoutSeconds);
+                    instance.setStatus("pending");
+                    instanceMapper.updateById(instance);
+                    log.warn("Instance {} stuck in dispatching for over {}s, reset to pending",
+                            instance.getInstanceName(), dispatchTimeoutSeconds);
                 }
             } catch (Exception e) {
-                log.warn("Task {} has unparseable lastExecTime '{}', reset to pending",
-                        task.getTaskName(), task.getLastExecTime());
-                task.setStatus("pending");
-                taskMapper.updateById(task);
+                log.warn("Instance {} has unparseable lastExecTime '{}', reset to pending",
+                        instance.getInstanceName(), instance.getLastExecTime());
+                instance.setStatus("pending");
+                instanceMapper.updateById(instance);
             }
         }
     }
 
-    private boolean canDispatch(MigrationTaskEntity task) {
-        if (task.getAgentId() == null || task.getAgentId().isEmpty()) {
-            log.warn("Task {} has no agent assigned", task.getTaskName());
+    private boolean canDispatch(TaskInstanceEntity instance) {
+        if (instance.getAgentId() == null || instance.getAgentId().isEmpty()) {
+            log.warn("Instance {} has no agent assigned", instance.getInstanceName());
             return false;
         }
         AgentNodeEntity agent = agentNodeMapper.selectOne(
-                new LambdaQueryWrapper<AgentNodeEntity>().eq(AgentNodeEntity::getAgentId, task.getAgentId()));
+                new LambdaQueryWrapper<AgentNodeEntity>().eq(AgentNodeEntity::getAgentId, instance.getAgentId()));
         if (agent == null || "offline".equals(agent.getStatus())) {
-            task.setErrorMsg("Agent offline");
-            task.setStatus("failed");
-            taskMapper.updateById(task);
+            instance.setErrorMsg("Agent offline");
+            instance.setStatus("failed");
+            instance.setCompleteTime(LocalDateTime.now().format(DTF));
+            instanceMapper.updateById(instance);
             return false;
         }
         if (agent.getRunningTaskCount() != null && agent.getMaxParallelTasks() != null
                 && agent.getRunningTaskCount() >= agent.getMaxParallelTasks()) {
-            log.warn("Agent {} is busy, skip task {}", task.getAgentId(), task.getTaskName());
+            log.warn("Agent {} is busy, skip instance {}", instance.getAgentId(), instance.getInstanceName());
             return false;
         }
         return true;
     }
-
-    public List<MigrationTaskEntity> getTasksByTimeRange(String startTime, String endTime) {
-        return taskMapper.selectList(
-                new LambdaQueryWrapper<MigrationTaskEntity>()
-                        .ge(MigrationTaskEntity::getCreateTime, LocalDateTime.parse(startTime, DTF))
-                        .le(MigrationTaskEntity::getCreateTime, LocalDateTime.parse(endTime, DTF)));
-    }
-
 }

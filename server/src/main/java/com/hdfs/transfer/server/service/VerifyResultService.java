@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hdfs.transfer.common.dto.VerifyResultDTO;
 import com.hdfs.transfer.server.entity.VerifyResultEntity;
-import com.hdfs.transfer.server.entity.MigrationTaskEntity;
+import com.hdfs.transfer.server.entity.TaskInstanceEntity;
 import com.hdfs.transfer.server.mapper.VerifyResultMapper;
-import com.hdfs.transfer.server.mapper.MigrationTaskMapper;
+import com.hdfs.transfer.server.mapper.TaskInstanceMapper;
 import com.alibaba.fastjson.JSON;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,17 +17,17 @@ import java.util.List;
 public class VerifyResultService {
 
     private final VerifyResultMapper verifyResultMapper;
-    private final MigrationTaskMapper taskMapper;
+    private final TaskInstanceMapper instanceMapper;
 
-    public VerifyResultService(VerifyResultMapper verifyResultMapper, MigrationTaskMapper taskMapper) {
+    public VerifyResultService(VerifyResultMapper verifyResultMapper, TaskInstanceMapper instanceMapper) {
         this.verifyResultMapper = verifyResultMapper;
-        this.taskMapper = taskMapper;
+        this.instanceMapper = instanceMapper;
     }
 
     public Page<VerifyResultEntity> page(int pageNum, int pageSize, String taskName) {
         LambdaQueryWrapper<VerifyResultEntity> wrapper = new LambdaQueryWrapper<>();
         if (taskName != null && !taskName.isEmpty()) {
-            wrapper.apply("EXISTS (SELECT 1 FROM migration_task mt WHERE mt.id = verify_result.task_id AND mt.task_name LIKE {0})", "%" + taskName + "%");
+            wrapper.apply("EXISTS (SELECT 1 FROM task_instance ti WHERE ti.id = verify_result.task_id AND ti.instance_name LIKE {0})", "%" + taskName + "%");
         }
         wrapper.orderByDesc(VerifyResultEntity::getCreateTime);
         Page<VerifyResultEntity> page = verifyResultMapper.selectPage(new Page<>(pageNum, pageSize), wrapper);
@@ -35,11 +35,11 @@ public class VerifyResultService {
         return page;
     }
 
-    private void enrichTaskNames(java.util.List<VerifyResultEntity> results) {
+    private void enrichTaskNames(List<VerifyResultEntity> results) {
         for (VerifyResultEntity r : results) {
             if (r.getTaskId() != null) {
-                MigrationTaskEntity task = taskMapper.selectById(r.getTaskId());
-                if (task != null) r.setTaskName(task.getTaskName());
+                TaskInstanceEntity instance = instanceMapper.selectById(r.getTaskId());
+                if (instance != null) r.setTaskName(instance.getInstanceName());
             }
         }
     }

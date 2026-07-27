@@ -5,16 +5,13 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hdfs.transfer.common.dto.TaskDTO;
 import com.hdfs.transfer.server.entity.MigrationTaskEntity;
 import com.hdfs.transfer.server.entity.ClusterConfigEntity;
-import com.hdfs.transfer.server.entity.AgentNodeEntity;
 import com.hdfs.transfer.server.mapper.MigrationTaskMapper;
 import com.hdfs.transfer.server.mapper.ClusterConfigMapper;
-import com.hdfs.transfer.server.mapper.AgentNodeMapper;
+import com.hdfs.transfer.server.scheduler.CronTaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -27,22 +24,20 @@ public class MigrationTaskService {
 
     private final MigrationTaskMapper taskMapper;
     private final ClusterConfigMapper clusterConfigMapper;
-    private final AgentNodeMapper agentNodeMapper;
     private final TaskOperationLogService operationLogService;
-    private final RestTemplate agentRestTemplate;
+    private final CronTaskManager cronTaskManager;
+    private final TaskInstanceService instanceService;
 
     public MigrationTaskService(MigrationTaskMapper taskMapper,
-                                ClusterConfigMapper clusterConfigMapper,
-                                AgentNodeMapper agentNodeMapper,
-                                TaskOperationLogService operationLogService) {
+                                 ClusterConfigMapper clusterConfigMapper,
+                                 TaskOperationLogService operationLogService,
+                                 CronTaskManager cronTaskManager,
+                                 TaskInstanceService instanceService) {
         this.taskMapper = taskMapper;
         this.clusterConfigMapper = clusterConfigMapper;
-        this.agentNodeMapper = agentNodeMapper;
         this.operationLogService = operationLogService;
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);
-        factory.setReadTimeout(15000);
-        this.agentRestTemplate = new RestTemplate(factory);
+        this.cronTaskManager = cronTaskManager;
+        this.instanceService = instanceService;
     }
 
     private String getCurrentUser() {
@@ -78,6 +73,30 @@ public class MigrationTaskService {
         return page;
     }
 
+    public List<MigrationTaskEntity> listForExport(String keyword, String status,
+                                                   String agentId, String startTime, String endTime) {
+        LambdaQueryWrapper<MigrationTaskEntity> wrapper = new LambdaQueryWrapper<>();
+        if (keyword != null && !keyword.isEmpty()) {
+            wrapper.like(MigrationTaskEntity::getTaskName, keyword);
+        }
+        if (status != null && !status.isEmpty()) {
+            wrapper.eq(MigrationTaskEntity::getStatus, status);
+        }
+        if (agentId != null && !agentId.isEmpty()) {
+            wrapper.eq(MigrationTaskEntity::getAgentId, agentId);
+        }
+        if (startTime != null && !startTime.isEmpty()) {
+            wrapper.ge(MigrationTaskEntity::getLastExecTime, startTime);
+        }
+        if (endTime != null && !endTime.isEmpty()) {
+            wrapper.le(MigrationTaskEntity::getCompleteTime, endTime);
+        }
+        wrapper.orderByDesc(MigrationTaskEntity::getCreateTime);
+        List<MigrationTaskEntity> list = taskMapper.selectList(wrapper);
+        enrichClusterNames(list);
+        return list;
+    }
+
     private void enrichClusterNames(List<MigrationTaskEntity> tasks) {
         for (MigrationTaskEntity task : tasks) {
             if (task.getSourceClusterId() != null) {
@@ -92,12 +111,11 @@ public class MigrationTaskService {
     }
 
     public MigrationTaskEntity getById(Long id) {
-        return taskMapper.selectById(id);
-    }
-
-    public List<MigrationTaskEntity> listPendingTasks() {
-        return taskMapper.selectList(new LambdaQueryWrapper<MigrationTaskEntity>()
-                .in(MigrationTaskEntity::getStatus, "pending", "retrying"));
+        MigrationTaskEntity entity = taskMapper.selectById(id);
+        if (entity != null) {
+            enrichClusterNames(java.util.Collections.singletonList(entity));
+        }
+        return entity;
     }
 
     @Transactional
@@ -145,38 +163,53 @@ public class MigrationTaskService {
     }
 
     @Transactional
-    public boolean start(Long id) {
+    public boolean online(Long id) {
         MigrationTaskEntity entity = taskMapper.selectById(id);
         if (entity == null) return false;
-        // 禁止重复启动：running/dispatching/retryging 状态不可启动
-        String currentStatus = entity.getStatus();
-        if ("running".equals(currentStatus) || "dispatching".equals(currentStatus) || "retrying".equals(currentStatus)) {
-            throw new RuntimeException("任务正在运行中，不可重复启动");
+        if (!"draft".equals(entity.getStatus()) && !"offline".equals(entity.getStatus())) {
+            throw new RuntimeException("仅草稿或下线状态的任务可上线");
         }
-        entity.setStatus("pending");
-        entity.setRetryCount(0);
+        entity.setStatus("online");
         entity.setLastExecTime(LocalDateTime.now().format(DTF));
-        entity.setCompleteTime(null);
-        entity.setErrorMsg(null);
         taskMapper.updateById(entity);
-        operationLogService.record(id, entity.getTaskName(), "start",
-                getCurrentUser(), "启动任务");
+        if ("scheduled".equals(entity.getTaskType())) {
+            if (entity.getCronExpr() == null || entity.getCronExpr().isEmpty()) {
+                throw new RuntimeException("定时任务缺少Cron表达式");
+            }
+            cronTaskManager.register(id, entity.getCronExpr());
+        }
+        operationLogService.record(id, entity.getTaskName(), "online",
+                getCurrentUser(), "任务上线");
         return true;
     }
 
     @Transactional
-    public boolean stop(Long id) {
+    public boolean offline(Long id) {
         MigrationTaskEntity entity = taskMapper.selectById(id);
         if (entity == null) return false;
-        String currentStatus = entity.getStatus();
-        if (!"pending".equals(currentStatus) && !"dispatching".equals(currentStatus)) {
-            throw new RuntimeException("仅待执行或派发中的任务可以停止");
+        if (!"online".equals(entity.getStatus())) {
+            throw new RuntimeException("仅上线状态的任务可下线");
         }
-        entity.setStatus("stopped");
-        entity.setCompleteTime(LocalDateTime.now().format(DTF));
+        if ("scheduled".equals(entity.getTaskType())) {
+            cronTaskManager.unregister(id);
+        }
+        entity.setStatus("offline");
         taskMapper.updateById(entity);
-        operationLogService.record(id, entity.getTaskName(), "stop",
-                getCurrentUser(), "停止任务（取消分发）");
+        operationLogService.record(id, entity.getTaskName(), "offline",
+                getCurrentUser(), "任务下线");
+        return true;
+    }
+
+    @Transactional
+    public boolean execute(Long id) {
+        MigrationTaskEntity entity = taskMapper.selectById(id);
+        if (entity == null) return false;
+        if (!"online".equals(entity.getStatus())) {
+            throw new RuntimeException("仅上线状态的任务可执行");
+        }
+        instanceService.createInstanceFromTemplate(id);
+        entity.setLastExecTime(LocalDateTime.now().format(DTF));
+        taskMapper.updateById(entity);
         return true;
     }
 
@@ -184,62 +217,24 @@ public class MigrationTaskService {
     public boolean forceKill(Long id) {
         MigrationTaskEntity entity = taskMapper.selectById(id);
         if (entity == null) return false;
-        notifyAgent(id, entity.getAgentId(), "kill");
-        entity.setStatus("killed");
-        entity.setCompleteTime(LocalDateTime.now().format(DTF));
-        taskMapper.updateById(entity);
+        instanceService.killByParentTaskId(id);
         operationLogService.record(id, entity.getTaskName(), "kill",
-                getCurrentUser(), "强制终止任务（含目标端文件清理）");
+                getCurrentUser(), "强制终止所有运行中实例");
         return true;
-    }
-
-    private void notifyAgent(Long taskId, String agentId, String action) {
-        if (agentId == null || agentId.isEmpty()) {
-            log.warn("Cannot notify agent for task {}: no agentId", taskId);
-            return;
-        }
-        AgentNodeEntity agent = agentNodeMapper.selectOne(
-                new LambdaQueryWrapper<AgentNodeEntity>().eq(AgentNodeEntity::getAgentId, agentId));
-        if (agent == null) {
-            log.warn("Cannot notify agent for task {}: agent {} not found", taskId, agentId);
-            return;
-        }
-        String host = agent.getAgentHost();
-        Integer port = agent.getAgentPort() != null ? agent.getAgentPort() : 8081;
-        String url = "http://" + host + ":" + port + "/api/agent/task/" + taskId + "/" + action;
-        try {
-            agentRestTemplate.postForEntity(url, null, Object.class);
-            log.info("Notified agent {} to {} task {}", agentId, action, taskId);
-        } catch (Exception e) {
-            log.warn("Failed to notify agent {} to {} task {}: {}", agentId, action, taskId, e.getMessage());
-        }
-    }
-
-    @Transactional
-    public List<MigrationTaskEntity> listDispatched(String agentId) {
-        return taskMapper.selectList(new LambdaQueryWrapper<MigrationTaskEntity>()
-                .eq(MigrationTaskEntity::getAgentId, agentId)
-                .eq(MigrationTaskEntity::getStatus, "dispatching"));
-    }
-
-    @Transactional
-    public void updateEntity(MigrationTaskEntity entity) {
-        taskMapper.updateById(entity);
-    }
-
-    @Transactional
-    public boolean updateStatusIfMatch(Long taskId, String newStatus, String expectedStatus) {
-        com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<MigrationTaskEntity> wrapper =
-                new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
-        wrapper.eq("id", taskId).eq("status", expectedStatus).set("status", newStatus);
-        return taskMapper.update(null, wrapper) > 0;
     }
 
     public void delete(Long id) {
         MigrationTaskEntity entity = taskMapper.selectById(id);
         if (entity == null) return;
-        if ("killed".equals(entity.getStatus())) {
-            throw new RuntimeException("已终止的任务不可删除");
+        if ("online".equals(entity.getStatus())) {
+            throw new RuntimeException("上线状态的任务不可删除，请先下线");
+        }
+        long instanceCount = instanceService.countByParentTaskId(id);
+        if (instanceCount > 0) {
+            throw new RuntimeException("存在" + instanceCount + "个任务实例，不可删除");
+        }
+        if ("scheduled".equals(entity.getTaskType())) {
+            cronTaskManager.unregister(id);
         }
         String taskName = entity.getTaskName();
         taskMapper.deleteById(id);
@@ -248,26 +243,16 @@ public class MigrationTaskService {
     }
 
     @Transactional
-    public void updateProgress(Long taskId, long completedFiles, long completedSize,
+    public void updateProgress(Long instanceId, long completedFiles, long completedSize,
                                long totalFiles, long totalSize, String status, String errorMsg) {
-        MigrationTaskEntity entity = taskMapper.selectById(taskId);
-        if (entity == null) return;
-        entity.setCompletedFiles(completedFiles);
-        entity.setCompletedSize(completedSize);
-        if (totalFiles > 0) {
-            entity.setTotalFiles(totalFiles);
-        }
-        if (totalSize > 0) {
-            entity.setTotalSize(totalSize);
-        }
-        entity.setStatus(status);
-        if (errorMsg != null) {
-            entity.setErrorMsg(errorMsg);
-        }
-        if ("success".equals(status) || "failed".equals(status)) {
-            entity.setCompleteTime(LocalDateTime.now().format(DTF));
-        }
-        taskMapper.updateById(entity);
+        instanceService.updateProgress(instanceId, completedFiles, completedSize, totalFiles, totalSize, status, errorMsg);
+    }
+
+    public List<MigrationTaskEntity> listScheduledOnline() {
+        return taskMapper.selectList(
+                new LambdaQueryWrapper<MigrationTaskEntity>()
+                        .eq(MigrationTaskEntity::getTaskType, "scheduled")
+                        .eq(MigrationTaskEntity::getStatus, "online"));
     }
 
     private Long parseLong(String val) {
