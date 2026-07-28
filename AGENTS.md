@@ -57,24 +57,28 @@ hdfs-file-transfer/          (parent pom)
 - 地址：`192.168.1.125:3306`
 - 库名：`hdfs_transfer`
 - 初始化脚本：`server/src/main/resources/schema.sql`
-- 共 10 张表：
+- 共 14 张表：
 
 | 表名 | 说明 |
 |------|------|
 | `cluster_config` | 集群配置（名称、NameNode 地址、HDFS 用户等） |
 | `agent_node` | Agent 节点（状态、心跳、CPU/内存） |
-| `migration_task` | 迁移任务（源/目标路径、状态、进度、时间） |
+| `migration_task` | 迁移任务模板（源/目标路径、状态、告警开关等） |
+| `task_instance` | 任务实例（每次执行生成的实例，含进度、重试等） |
 | `task_log` | 任务执行日志（来自 Agent 的 distcp 输出） |
 | `verify_result` | 校验结果（文件数/数据量对比、差异文件列表） |
 | `sys_user` | 系统用户（BCrypt 密码），schema.sql 含默认 admin 用户 |
-| `task_operation_log` | 任务操作记录（创建/编辑/启动/停止/删除，含操作人） |
+| `task_operation_log` | 任务操作记录（创建/编辑/上线/下线/执行/终止/删除，含操作人） |
 | `ai_config` | AI 模型配置（API 地址、密钥、模型名、温度等） |
 | `ai_conversation` | AI 对话会话（标题、用户名、配置 ID） |
 | `ai_message` | AI 对话消息（会话 ID、角色、内容） |
+| `login_log` | 登录日志（用户名、登录 IP、登录时间） |
+| `alert_config` | 告警类型配置（告警类型、启用状态、备注） |
+| `alert_webhook` | 告警通知渠道（企业微信/钉钉 webhook 地址、启用状态） |
 
 **注意：** schema.sql 需手动执行（`mysql -h <host> -u root -p < schema.sql`），Spring Boot 不会自动运行。schema.sql 含默认管理员账号 `admin / admin123`（BCrypt 加密）。
 
-**已知配置问题：** `application.yml` 中 MyBatis-Plus 配置了 `logic-delete-field: deleted`，但 10 张表均无 `deleted` 字段，也无 Entity 使用 `@TableLogic` 注解。此配置当前无效但无害。
+**已知配置问题：** `application.yml` 中 MyBatis-Plus 配置了 `logic-delete-field: deleted`，但所有表均无 `deleted` 字段，也无 Entity 使用 `@TableLogic` 注解。此配置当前无效但无害。
 
 ## Common 模块（com.hdfs.transfer.common）
 
@@ -84,7 +88,7 @@ hdfs-file-transfer/          (parent pom)
 | 类名 | 用途 |
 |------|------|
 | `ApiResponse<T>` | 统一响应封装（code/message/data），静态方法 `success()`/`error()` |
-| `TaskDTO` | 任务数据传输（taskId/taskName/taskType/源目标集群路径/distcpOptions/agentId） |
+| `TaskDTO` | 任务数据传输（taskId/taskName/taskType/源目标集群路径/distcpOptions/agentId/alertEnabled） |
 | `TaskProgressDTO` | 任务进度（totalSize/completedSize/progressPercent/totalFiles/completedFiles/status） |
 | `HeartbeatDTO` | Agent 心跳（agentId/status/cpuUsage/memoryUsage/taskProgressList） |
 | `LogEntryDTO` | 日志条目（taskId/level/content/timestamp） |
@@ -105,13 +109,14 @@ hdfs-file-transfer/          (parent pom)
 ### 分层结构
 ```
 api/          → AuthController, OpenApiController（对外 API）
-controller/   → AgentController, AiChatController, ClusterConfigController,
-                DashboardController, LogController, MigrationTaskController,
-                SysUserController, TaskOperationLogController, VerifyController
+controller/   → AgentController, AiChatController, AlertConfigController,
+                ClusterConfigController, DashboardController, LogController,
+                LoginLogController, MigrationTaskController, SysUserController,
+                TaskInstanceController, TaskOperationLogController, VerifyController
 monitor/      → AgentReportController（Agent 上报专用，免认证）
-service/      → 业务逻辑层（10 个 Service）
-entity/       → MyBatis-Plus 实体（10 个 Entity）
-mapper/       → MyBatis-Plus Mapper 接口（10 个 Mapper，仅 SysUserMapper 有 XML）
+service/      → 业务逻辑层（13 个 Service）
+entity/       → MyBatis-Plus 实体（14 个 Entity）
+mapper/       → MyBatis-Plus Mapper 接口（14 个 Mapper，仅 SysUserMapper 有 XML）
 security/     → SecurityConfig, JwtTokenProvider, JwtAuthenticationFilter
 scheduler/    → TaskDispatchJob(10s), AgentMonitorJob(30s), LogCleanupJob(每天3点)
 config/       → MyBatisPlusConfig, MetaObjectHandlerConfig, ScheduleConfig, SwaggerConfig
@@ -130,32 +135,27 @@ alert/        → AlertService（钉钉/企微告警通知）
 
 **任务状态流转：**
 ```
-draft → pending → dispatching → running → success/failed
-                                   ↓
-                                retrying → running（加 -update 重试）
-                                   ↓
-                                stopped（手动停止）/ killed（强制终止 + HDFS 清理）
+draft → online → execute → task_instance(pending → dispatching → running → success/failed)
+  ↓                ↓                                                    ↓
+offline      下线后不再生成新实例                              failed → retrying → running → ...
+                                                                  ↓
+                                                           stopped / killed（强制终止 + HDFS 清理）
 ```
 
-**任务创建初始状态为 `draft`**（非 `pending`），用户点击"启动"后 `start()` 将状态改为 `pending`，随后 `TaskDispatchJob` 分配为 `dispatching`，Agent 拉取后 CAS 改为 `running`。
+**任务创建初始状态为 `draft`**，用户点击"上线"后 `online()` 将状态改为 `online`，用户点击"执行"后生成任务实例（`task_instance`，初始 `pending`），随后 `TaskDispatchJob` 分配为 `dispatching`，Agent 拉取后 CAS 改为 `running`。
 
 **任务操作按钮展示规则（前端实际实现）：**
 | 状态 | 按钮 |
 |------|------|
-| draft | 编辑、启动、操作记录、删除 |
-| pending | 停止、操作记录、删除 |
-| dispatching | 停止、操作记录 |
-| running / retrying | 强制终止、日志、操作记录 |
-| success | 日志、校验结果、操作记录 |
-| failed | 日志、操作记录 |
-| stopped | 日志、操作记录、删除 |
-| killed | 日志、操作记录 |
+| draft | 编辑、上线、操作记录、删除 |
+| online | 执行、查看实例、操作记录、下线 |
+| offline | 上线、编辑、查看实例、操作记录、删除 |
 
-**启动防重复：** 后端 `start()` 校验状态，running/dispatching/retrying 抛异常拒绝。前端用 `startingIds`/`stoppingIds`/`killingIds` 数组禁用按钮。
+**启动防重复：** 后端 `execute()` 校验状态，running/dispatching/retrying 抛异常拒绝。前端用 `executingIds`/`killingIds` 数组禁用按钮。
 
 **任务名称唯一：** `add()` 时校验，重复抛 `RuntimeException`。
 
-**操作记录：** `MigrationTaskService` 在 create/edit/start/stop/kill/delete 时自动调用 `operationLogService.record()`，操作人从 `SecurityContext` 获取。
+**操作记录：** `MigrationTaskService` 在 create/edit/online/offline/execute/kill/delete 时自动调用 `operationLogService.record()`，操作人从 `SecurityContext` 获取。
 
 **强制终止：** `forceKill()` 发送 HTTP POST 到 Agent `http://{host}:{port}/api/agent/task/{taskId}/kill`，Agent 执行 `destroyForcibly()` + `hadoop fs -rm -r` 清理目标端残留数据。
 
@@ -182,10 +182,14 @@ draft → pending → dispatching → running → success/failed
 
 ### 告警通知
 
-- **AlertService**：任务失败、Agent 离线、校验不一致时触发
+- **AlertService**：任务失败、Agent 上线/离线、校验不一致时触发
 - 支持钉钉（Markdown 消息）和企业微信（文本消息），均通过 RestTemplate 发送
-- 邮件配置项存在但未实现
-- 配置在 `application.yml` → `alert.dingtalk.*` / `alert.wechat.*`，默认关闭
+- 配置存储在数据库 `alert_config`（告警类型开关）和 `alert_webhook`（webhook 地址）表中，非 `application.yml`
+- **AlertConfigController**（`/api/alert-config`）：查询配置、更新告警类型/渠道、测试 webhook
+- 告警类型：`task_failed`、`agent_offline`、`agent_online`、`verify_mismatch`，可独立启用/禁用
+- 通知渠道：企业微信（`wechat`）、钉钉（`dingtalk`），可独立配置 webhook 地址和启用状态
+- 任务级别告警开关：`migration_task.alert_enabled` 字段控制单个任务是否告警，新建任务时默认开启
+- Agent 上线告警触发时机：首次注册、从 offline 恢复（心跳检测到状态转换）
 
 ### 定时任务
 
@@ -213,11 +217,6 @@ hdfs.transfer:
   task-log-retention-days: 30      # 日志保留天数
   dispatch-timeout-seconds: 120    # 派发超时秒数
 
-alert:
-  dingtalk: { enabled: false, webhook: "" }
-  wechat:   { enabled: false, webhook: "" }
-  mail:     { enabled: false, host: smtp.example.com, port: 465 }
-
 # JWT（默认值在 @Value 注解中）
 # jwt.secret = hdstransfer-secret-key-2024
 # jwt.expiration = 86400000 (24h)
@@ -230,7 +229,7 @@ alert:
 HeartbeatService(10s) → 上报心跳 + CPU/内存 + 任务进度
 TaskPollerService(15s) → 拉取任务 → TaskExecutionManager.executeTask()
   0. PathExpressionResolver.resolve() → 替换 ${YYYY-MM-DD+N} 日期占位符
-  1. PreCheckService.preCheck() → 检查 Hadoop 环境/源路径/目标空间
+  1. PreCheckService.preCheck() → 检查 Hadoop 环境/源路径/目标路径，返回 PreCheckResult（含错误信息）
   2. getSourceStats() → hadoop fs -count + du -s 获取总量
   3. ShellScriptGenerator.generateDistcpScript() → 生成 bash 脚本
   4. ShellProcessManager.startScript() → 执行 bash
@@ -288,13 +287,16 @@ distcp 复制目录时保留目录名：`distcp /src/dir /dst/` → 创建 `/dst
 | /dashboard | Dashboard.vue | 监控大盘（统计卡片 + 最近任务） |
 | /clusters | ClusterList.vue | 集群管理（CRUD + 连通性测试） |
 | /clusters/add, /:id/edit | ClusterForm.vue | 集群表单 |
-| /tasks | TaskList.vue | 迁移任务（CRUD + 启动/停止/终止 + 日志/校验/操作记录弹窗） |
-| /tasks/add, /:id/edit | TaskForm.vue | 任务表单 |
+| /tasks | TaskList.vue | 迁移任务（CRUD + 上线/下线/执行/终止 + 日志/校验/操作记录弹窗） |
+| /tasks/add, /:id/edit | TaskForm.vue | 任务表单（含告警开关） |
+| /task-instances | TaskInstanceList.vue | 任务实例（分页查询 + 终止 + 日志/校验弹窗） |
 | /agents | AgentList.vue | Agent 管理（列表 + 状态） |
 | /verify | VerifyResult.vue | 校验结果（分页列表） |
 | /users | UserList.vue | 用户管理（仅 admin 可见） |
+| /login-logs | LoginLogList.vue | 登录日志（仅 admin 可见） |
 | /ai-chat | AiChat.vue | AI 助手（SSE 流式聊天） |
 | /ai-config | AiConfig.vue | AI 模型配置（CRUD + 测试 + 默认设置） |
+| /alert-config | AlertConfig.vue | 告警配置（仅 admin 可见） |
 
 ### axios 拦截器（api/index.js）
 - baseURL：`/api`，timeout 30s
@@ -304,7 +306,7 @@ distcp 复制目录时保留目录名：`distcp /src/dir /dst/` → 创建 `/dst
 ### 路由守卫（router/index.js）
 - `/login` 公开，其他需 token
 - 已登录访问 `/login` 自动跳转 `/`
-- `/users` 仅 admin 角色（localStorage `role === 'admin'`）可访问
+- `/users`、`/login-logs`、`/alert-config` 仅 admin 角色（localStorage `role === 'admin'`）可访问
 
 ### 全局工具函数（utils/index.js）
 - `statusType(status)` → Element Plus tag type（支持 draft/pending/running/success/failed/stopped/killed/retrying/dispatching）
@@ -365,7 +367,7 @@ scp -r agent/target/deploy/ user@linux:/opt/hdfs-transfer/agent/
 ```bash
 mysql -h <db_host> -u root -p < server/src/main/resources/schema.sql
 ```
-schema.sql 含 `CREATE DATABASE` + 10 张表 + 默认 admin 用户（admin/admin123）。
+schema.sql 含 `CREATE DATABASE` + 14 张表 + 默认 admin 用户（admin/admin123）。
 所有表用 `CREATE TABLE IF NOT EXISTS`，可安全重复执行。
 
 ### 数据库变更
