@@ -1,14 +1,14 @@
 <template>
   <el-container style="height: 100vh">
-    <el-aside width="220px" style="background: #304156">
-      <div style="height: 60px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1)">
+    <el-aside width="220px" style="background: linear-gradient(180deg, #1a2b4a 0%, #0d1b2e 100%)">
+      <div style="height: 60px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.08)">
         HDFS迁移平台
       </div>
       <el-menu
         :default-active="activeMenu"
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409EFF"
+        background-color="transparent"
+        text-color="#8a9bb5"
+        active-text-color="#4facfe"
         router
         style="border-right: none"
       >
@@ -59,7 +59,7 @@
       </el-menu>
     </el-aside>
     <el-container>
-      <el-header style="background: #fff; border-bottom: 1px solid #e6e6e6; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 50px">
+      <el-header style="background: #fff; border-bottom: 1px solid #e0e6ed; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 50px; box-shadow: 0 1px 4px rgba(0,21,41,0.06)">
         <el-breadcrumb separator="/">
           <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
           <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
@@ -78,7 +78,7 @@
           </el-dropdown>
         </div>
       </el-header>
-      <el-main style="background: #f0f2f5; padding: 20px">
+      <el-main style="background: #f0f4f8; padding: 20px">
         <router-view />
       </el-main>
     </el-container>
