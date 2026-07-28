@@ -2,6 +2,7 @@ package com.hdfs.transfer.server.scheduler;
 
 import com.hdfs.transfer.server.entity.AgentNodeEntity;
 import com.hdfs.transfer.server.service.AgentService;
+import com.hdfs.transfer.server.alert.AlertService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,12 +17,14 @@ public class AgentMonitorJob {
     private static final Logger log = LoggerFactory.getLogger(AgentMonitorJob.class);
 
     private final AgentService agentService;
+    private final AlertService alertService;
 
     @Value("${hdfs.transfer.agent-heartbeat-timeout:60}")
     private int heartbeatTimeout;
 
-    public AgentMonitorJob(AgentService agentService) {
+    public AgentMonitorJob(AgentService agentService, AlertService alertService) {
         this.agentService = agentService;
+        this.alertService = alertService;
     }
 
     @Scheduled(fixedDelay = 30000)
@@ -34,6 +37,13 @@ public class AgentMonitorJob {
                 if (!"offline".equals(agent.getStatus())) {
                     log.warn("Agent {} heartbeat timeout, mark offline", agent.getAgentId());
                     agentService.markOffline(agent.getAgentId());
+                    alertService.notifyAgentOffline(agent.getAgentId(), agent.getAgentHost());
+                }
+            } else {
+                if ("offline".equals(agent.getStatus())) {
+                    log.info("Agent {} recovered, mark online", agent.getAgentId());
+                    agentService.markOnline(agent.getAgentId());
+                    alertService.notifyAgentOnline(agent.getAgentId(), agent.getAgentHost());
                 }
             }
         }

@@ -28,6 +28,7 @@ public class MigrationTaskEntity {
     private String nextExecTime;
     private String completeTime;
     private String errorMsg;
+    private Boolean alertEnabled;
 
     @TableField(exist = false)
     private String sourceClusterName;
@@ -83,6 +84,8 @@ public class MigrationTaskEntity {
     public void setCompleteTime(String completeTime) { this.completeTime = completeTime; }
     public String getErrorMsg() { return errorMsg; }
     public void setErrorMsg(String errorMsg) { this.errorMsg = errorMsg; }
+    public Boolean getAlertEnabled() { return alertEnabled; }
+    public void setAlertEnabled(Boolean alertEnabled) { this.alertEnabled = alertEnabled; }
     public String getSourceClusterName() { return sourceClusterName; }
     public void setSourceClusterName(String sourceClusterName) { this.sourceClusterName = sourceClusterName; }
     public String getTargetClusterName() { return targetClusterName; }

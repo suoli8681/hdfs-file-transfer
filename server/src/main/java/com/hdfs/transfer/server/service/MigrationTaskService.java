@@ -135,6 +135,7 @@ public class MigrationTaskService {
         entity.setCronExpr(dto.getCronExpr());
         entity.setAgentId(dto.getAgentId());
         entity.setStatus("draft");
+        entity.setAlertEnabled(true);
         entity.setRetryCount(0);
         entity.setMaxRetryCount(3);
         entity.setPriority(5);
@@ -157,9 +158,19 @@ public class MigrationTaskService {
         if (dto.getDistcpOptions() != null) entity.setDistcpOptions(dto.getDistcpOptions());
         if (dto.getCronExpr() != null) entity.setCronExpr(dto.getCronExpr());
         if (dto.getAgentId() != null) entity.setAgentId(dto.getAgentId());
+        if (dto.getAlertEnabled() != null) entity.setAlertEnabled(dto.getAlertEnabled());
         taskMapper.updateById(entity);
         operationLogService.record(entity.getId(), entity.getTaskName(), "edit",
                 getCurrentUser(), "编辑任务: " + entity.getTaskName());
+    }
+
+    @Transactional
+    public boolean updateAlertEnabled(Long id, Boolean alertEnabled) {
+        MigrationTaskEntity entity = taskMapper.selectById(id);
+        if (entity == null) return false;
+        entity.setAlertEnabled(alertEnabled);
+        taskMapper.updateById(entity);
+        return true;
     }
 
     @Transactional

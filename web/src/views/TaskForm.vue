@@ -51,6 +51,10 @@
           <el-option v-for="a in agents" :key="a.agentId" :label="a.agentHost + '(' + a.agentId + ')'" :value="a.agentId" />
         </el-select>
       </el-form-item>
+      <el-form-item label="告警通知">
+        <el-switch v-model="form.alertEnabled" />
+        <span style="margin-left:10px;font-size:12px;color:#909399">开启后任务失败时发送告警通知</span>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSubmit" :loading="submitting">{{ isEdit ? '保存' : '创建' }}</el-button>
         <el-button @click="$router.back()">取消</el-button>
@@ -102,7 +106,8 @@ const rules = {
 
 const form = ref({
   taskName: '', taskType: 'once', sourceCluster: '', sourcePath: '',
-  targetCluster: '', targetPath: '', distcpOptions: '', cronExpr: '', agentId: ''
+  targetCluster: '', targetPath: '', distcpOptions: '', cronExpr: '', agentId: '',
+  alertEnabled: true
 })
 
 onMounted(async () => {
@@ -119,7 +124,8 @@ onMounted(async () => {
         targetPath: data.targetPath,
         distcpOptions: data.distcpOptions || '',
         cronExpr: data.cronExpr || '',
-        agentId: data.agentId || ''
+        agentId: data.agentId || '',
+        alertEnabled: data.alertEnabled != null ? data.alertEnabled : true
       }
     }
   }

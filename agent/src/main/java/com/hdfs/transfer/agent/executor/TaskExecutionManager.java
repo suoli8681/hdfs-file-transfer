@@ -81,9 +81,9 @@ public class TaskExecutionManager {
             return;
         }
 
-        boolean preCheckOk = preCheckService.preCheck(taskId, sourcePath, targetPath);
-        if (!preCheckOk) {
-            communicator.reportTaskStatus(taskId, "failed", 0, 0, 0, 0, "Pre-check failed");
+        PreCheckService.PreCheckResult preCheckResult = preCheckService.preCheck(taskId, sourcePath, targetPath);
+        if (!preCheckResult.isSuccess()) {
+            communicator.reportTaskStatus(taskId, "failed", 0, 0, 0, 0, preCheckResult.getMessage());
             return;
         }
 

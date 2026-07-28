@@ -7,6 +7,7 @@ import com.hdfs.transfer.server.entity.MigrationTaskEntity;
 import com.hdfs.transfer.server.entity.TaskInstanceEntity;
 import com.hdfs.transfer.server.service.MigrationTaskService;
 import com.hdfs.transfer.server.service.TaskInstanceService;
+import com.hdfs.transfer.server.alert.AlertService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.web.bind.annotation.*;
@@ -23,10 +24,12 @@ public class MigrationTaskController {
 
     private final MigrationTaskService migrationTaskService;
     private final TaskInstanceService instanceService;
+    private final AlertService alertService;
 
-    public MigrationTaskController(MigrationTaskService migrationTaskService, TaskInstanceService instanceService) {
+    public MigrationTaskController(MigrationTaskService migrationTaskService, TaskInstanceService instanceService, AlertService alertService) {
         this.migrationTaskService = migrationTaskService;
         this.instanceService = instanceService;
+        this.alertService = alertService;
     }
 
     @GetMapping("/page")
@@ -128,6 +131,12 @@ public class MigrationTaskController {
         return ApiResponse.success();
     }
 
+    @PutMapping("/{id}/alert")
+    public ApiResponse updateAlert(@PathVariable Long id, @RequestBody AlertToggleRequest req) {
+        boolean ok = migrationTaskService.updateAlertEnabled(id, req.alertEnabled);
+        return ok ? ApiResponse.success() : ApiResponse.error(404, "任务不存在");
+    }
+
     @PostMapping("/{id}/online")
     public ApiResponse online(@PathVariable Long id) {
         try {
@@ -202,6 +211,16 @@ public class MigrationTaskController {
                 Long.parseLong(body.get("totalSize").toString()) : 0;
         String errorMsg = (String) body.get("errorMsg");
         migrationTaskService.updateProgress(id, completedFiles, completedSize, totalFiles, totalSize, status, errorMsg);
+        if ("failed".equals(status)) {
+            TaskInstanceEntity instance = instanceService.getById(id);
+            String instanceName = instance != null ? instance.getInstanceName() : String.valueOf(id);
+            boolean taskAlertEnabled = false;
+            if (instance != null && instance.getParentTaskId() != null) {
+                MigrationTaskEntity template = migrationTaskService.getById(instance.getParentTaskId());
+                taskAlertEnabled = template != null && Boolean.TRUE.equals(template.getAlertEnabled());
+            }
+            alertService.notifyTaskFailed(id, instanceName, errorMsg, taskAlertEnabled);
+        }
         return ApiResponse.success();
     }
 
@@ -214,4 +233,8 @@ public class MigrationTaskController {
             return ApiResponse.error(400, e.getMessage());
         }
     }
+}
+
+class AlertToggleRequest {
+    public Boolean alertEnabled;
 }

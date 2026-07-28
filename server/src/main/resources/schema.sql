@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS migration_task (
     next_exec_time VARCHAR(32) DEFAULT NULL COMMENT '下次执行时间（已废弃）',
     complete_time VARCHAR(32) DEFAULT NULL COMMENT '完成时间（已废弃，迁移至实例）',
     error_msg TEXT DEFAULT NULL COMMENT '错误信息（已废弃，迁移至实例）',
+    alert_enabled TINYINT(1) DEFAULT 0 COMMENT '是否启用告警',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) COMMENT '迁移任务表（任务模板）';
@@ -201,3 +202,49 @@ CREATE TABLE IF NOT EXISTS login_log (
     INDEX idx_username (username),
     INDEX idx_create_time (create_time)
 ) COMMENT '登录日志表';
+
+-- 告警配置表
+CREATE TABLE IF NOT EXISTS alert_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    alert_type VARCHAR(32) NOT NULL UNIQUE COMMENT '告警类型: task_failed=任务失败, agent_offline=Agent离线, agent_online=Agent上线, verify_mismatch=校验不一致',
+    enabled TINYINT DEFAULT 0 COMMENT '是否启用: 1=启用 0=禁用',
+    remark VARCHAR(128) DEFAULT NULL COMMENT '备注',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) COMMENT '告警配置表';
+
+-- 告警webhook配置表
+CREATE TABLE IF NOT EXISTS alert_webhook (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    webhook_type VARCHAR(32) NOT NULL UNIQUE COMMENT 'webhook类型: wechat=企业微信, dingtalk=钉钉',
+    webhook VARCHAR(500) DEFAULT '' COMMENT 'webhook地址',
+    enabled TINYINT DEFAULT 0 COMMENT '是否启用: 1=启用 0=禁用',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) COMMENT '告警webhook配置表';
+
+-- 初始化默认告警配置
+INSERT INTO alert_config (alert_type, enabled, remark)
+SELECT 'task_failed', 0, '任务失败告警'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_config WHERE alert_type = 'task_failed');
+
+INSERT INTO alert_config (alert_type, enabled, remark)
+SELECT 'agent_offline', 0, 'Agent离线告警'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_config WHERE alert_type = 'agent_offline');
+
+INSERT INTO alert_config (alert_type, enabled, remark)
+SELECT 'agent_online', 0, 'Agent上线告警'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_config WHERE alert_type = 'agent_online');
+
+INSERT INTO alert_config (alert_type, enabled, remark)
+SELECT 'verify_mismatch', 0, '校验不一致告警'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_config WHERE alert_type = 'verify_mismatch');
+
+-- 初始化默认webhook配置
+INSERT INTO alert_webhook (webhook_type, webhook, enabled)
+SELECT 'wechat', '', 0
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_webhook WHERE webhook_type = 'wechat');
+
+INSERT INTO alert_webhook (webhook_type, webhook, enabled)
+SELECT 'dingtalk', '', 0
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM alert_webhook WHERE webhook_type = 'dingtalk');

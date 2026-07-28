@@ -37,16 +37,3 @@ hdfs:
     task-log-retention-days: 30
     dispatch-timeout-seconds: 120
 
-alert:
-  dingtalk:
-    enabled: false
-    webhook: ""
-  wechat:
-    enabled: false
-    webhook: ""
-  mail:
-    enabled: false
-    host: smtp.example.com
-    port: 465
-    username: ""
-    password: ""

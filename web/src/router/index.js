@@ -26,7 +26,8 @@ const routes = [
       { path: 'users', name: 'Users', component: () => import('../views/UserList.vue'), meta: { title: '用户管理' } },
       { path: 'login-logs', name: 'LoginLogs', component: () => import('../views/LoginLogList.vue'), meta: { title: '登录日志' } },
       { path: 'ai-chat', name: 'AiChat', component: () => import('../views/AiChat.vue'), meta: { title: 'AI 助手' } },
-      { path: 'ai-config', name: 'AiConfig', component: () => import('../views/AiConfig.vue'), meta: { title: 'AI 模型配置' } }
+      { path: 'ai-config', name: 'AiConfig', component: () => import('../views/AiConfig.vue'), meta: { title: 'AI 模型配置' } },
+      { path: 'alert-config', name: 'AlertConfig', component: () => import('../views/AlertConfig.vue'), meta: { title: '告警配置' } }
     ]
   }
 ]
@@ -43,7 +44,7 @@ router.beforeEach((to, from, next) => {
     next({ path: '/login', query: { redirect: to.fullPath } })
   } else if (to.path === '/login' && token) {
     next('/')
-  } else if ((to.path === '/users' || to.path === '/login-logs') && localStorage.getItem('role') !== 'admin') {
+  } else if ((to.path === '/users' || to.path === '/login-logs' || to.path === '/alert-config') && localStorage.getItem('role') !== 'admin') {
     next('/dashboard')
   } else {
     next()

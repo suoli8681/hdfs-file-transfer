@@ -11,6 +11,7 @@ public class TaskDTO {
     private String distcpOptions;
     private String cronExpr;
     private String agentId;
+    private Boolean alertEnabled;
 
     public Long getTaskId() { return taskId; }
     public void setTaskId(Long taskId) { this.taskId = taskId; }
@@ -32,4 +33,6 @@ public class TaskDTO {
     public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
     public String getAgentId() { return agentId; }
     public void setAgentId(String agentId) { this.agentId = agentId; }
+    public Boolean getAlertEnabled() { return alertEnabled; }
+    public void setAlertEnabled(Boolean alertEnabled) { this.alertEnabled = alertEnabled; }
 }

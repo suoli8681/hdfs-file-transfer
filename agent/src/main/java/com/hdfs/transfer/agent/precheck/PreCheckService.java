@@ -18,82 +18,95 @@ public class PreCheckService {
         this.agentConfig = agentConfig;
     }
 
-    public boolean preCheck(Long taskId, String sourcePath, String targetPath) {
+    public PreCheckResult preCheck(Long taskId, String sourcePath, String targetPath) {
         try {
-            if (!checkHadoopEnv()) {
-                log.error("Hadoop environment not available");
-                return false;
+            String hadoopBin = agentConfig.getHadoopHome() + "/bin/hadoop";
+            File hadoopBinary = new File(hadoopBin);
+            if (!hadoopBinary.exists()) {
+                String msg = "Hadoop环境检查失败: 未找到Hadoop可执行文件 " + hadoopBin;
+                log.error(msg);
+                return PreCheckResult.fail(msg);
             }
 
-            if (!checkSourceExists(sourcePath)) {
-                log.error("Source path does not exist: {}", sourcePath);
-                return false;
+            ProcessBuilder versionPb = new ProcessBuilder(hadoopBin, "version");
+            Process versionProcess = versionPb.start();
+            int versionExitCode = versionProcess.waitFor();
+            if (versionExitCode != 0) {
+                String msg = "Hadoop环境检查失败: hadoop version 命令执行失败(退出码=" + versionExitCode + ")";
+                log.error(msg);
+                return PreCheckResult.fail(msg);
             }
 
-            if (!checkTargetSpace(sourcePath, targetPath)) {
-                log.error("Target cluster has insufficient space");
-                return false;
+            int sourceExitCode = checkPathExists(sourcePath);
+            if (sourceExitCode != 0) {
+                String msg = "源路径不存在或无访问权限: " + sourcePath;
+                log.error(msg);
+                return PreCheckResult.fail(msg);
+            }
+
+            int targetParentExists = checkTargetParentExists(targetPath);
+            if (targetParentExists != 0) {
+                String msg = "目标路径的父目录不存在或无访问权限: " + targetPath;
+                log.error(msg);
+                return PreCheckResult.fail(msg);
+            }
+
+            int targetExists = checkPathExists(targetPath);
+            if (targetExists != 0) {
+                String msg = "目标路径不存在: " + targetPath;
+                log.error(msg);
+                return PreCheckResult.fail(msg);
             }
 
             log.info("Pre-check passed for task {}", taskId);
-            return true;
+            return PreCheckResult.success();
         } catch (Exception e) {
+            String msg = "预检查异常: " + e.getMessage();
             log.error("Pre-check failed for task {}", taskId, e);
-            return false;
+            return PreCheckResult.fail(msg);
         }
     }
 
-    private boolean checkHadoopEnv() {
-        try {
-            String hadoopHome = agentConfig.getHadoopHome();
-            File hadoopBin = new File(hadoopHome, "bin/hadoop");
-            if (!hadoopBin.exists()) {
-                log.warn("hadoop binary not found at {}", hadoopBin);
-                return false;
-            }
-            ProcessBuilder pb = new ProcessBuilder(hadoopBin.getAbsolutePath(), "version");
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            return exitCode == 0;
-        } catch (Exception e) {
-            log.warn("Hadoop env check failed", e);
-            return false;
-        }
+    private int checkPathExists(String path) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(
+                agentConfig.getHadoopHome() + "/bin/hadoop", "fs", "-test", "-e", path);
+        pb.environment().put("HADOOP_HOME", agentConfig.getHadoopHome());
+        Process process = pb.start();
+        return process.waitFor();
     }
 
-    private boolean checkSourceExists(String sourcePath) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    agentConfig.getHadoopHome() + "/bin/hadoop", "fs", "-test", "-e", sourcePath);
-            pb.environment().put("HADOOP_HOME", agentConfig.getHadoopHome());
-            Process process = pb.start();
-            return process.waitFor() == 0;
-        } catch (Exception e) {
-            log.warn("Source path check failed for {}", sourcePath, e);
-            return false;
+    private int checkTargetParentExists(String targetPath) throws Exception {
+        String parentPath = targetPath;
+        if (targetPath.endsWith("/")) {
+            parentPath = targetPath.substring(0, targetPath.length() - 1);
         }
+        int lastSlash = parentPath.lastIndexOf('/');
+        if (lastSlash > 0) {
+            parentPath = parentPath.substring(0, lastSlash);
+        } else {
+            return 0;
+        }
+        return checkPathExists(parentPath);
     }
 
-    private boolean checkTargetSpace(String sourcePath, String targetPath) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    agentConfig.getHadoopHome() + "/bin/hadoop", "fs", "-df", targetPath);
-            pb.environment().put("HADOOP_HOME", agentConfig.getHadoopHome());
-            Process process = pb.start();
+    public static class PreCheckResult {
+        private final boolean success;
+        private final String message;
 
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                }
-            }
-            process.waitFor();
-            log.info("Target cluster space: {}", output.toString().trim());
-            return true;
-        } catch (Exception e) {
-            log.warn("Target space check failed, bypass", e);
-            return true;
+        private PreCheckResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
+
+        public static PreCheckResult success() {
+            return new PreCheckResult(true, "预检查通过");
+        }
+
+        public static PreCheckResult fail(String message) {
+            return new PreCheckResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }

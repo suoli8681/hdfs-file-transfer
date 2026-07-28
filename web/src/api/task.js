@@ -67,3 +67,7 @@ export function forceKillTask(id) {
 export function deleteTask(id) {
   return request.delete(`/tasks/${id}`)
 }
+
+export function updateTaskAlert(id, alertEnabled) {
+  return request.put(`/tasks/${id}/alert`, { alertEnabled })
+}

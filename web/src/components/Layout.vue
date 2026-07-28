@@ -44,6 +44,10 @@
           <el-icon><Document /></el-icon>
           <span>登录日志</span>
         </el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/alert-config">
+          <el-icon><Bell /></el-icon>
+          <span>告警配置</span>
+        </el-menu-item>
         <el-menu-item index="/ai-chat">
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
