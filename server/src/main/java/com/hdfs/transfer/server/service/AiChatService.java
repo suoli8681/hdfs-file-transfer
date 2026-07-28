@@ -33,16 +33,19 @@ public class AiChatService {
     private final AiMessageMapper messageMapper;
     private final AiConfigMapper configMapper;
     private final MigrationTaskMapper taskMapper;
+    private final TaskInstanceMapper instanceMapper;
     private final AgentNodeMapper agentNodeMapper;
     private final ClusterConfigMapper clusterConfigMapper;
 
     public AiChatService(AiConversationMapper conversationMapper, AiMessageMapper messageMapper,
                          AiConfigMapper configMapper, MigrationTaskMapper taskMapper,
+                         TaskInstanceMapper instanceMapper,
                          AgentNodeMapper agentNodeMapper, ClusterConfigMapper clusterConfigMapper) {
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
         this.configMapper = configMapper;
         this.taskMapper = taskMapper;
+        this.instanceMapper = instanceMapper;
         this.agentNodeMapper = agentNodeMapper;
         this.clusterConfigMapper = clusterConfigMapper;
     }
@@ -333,41 +336,9 @@ public class AiChatService {
             String queryType = args.getString("query_type");
             String sourcePath = args.getString("source_path");
             String statusFilter = args.getString("status");
+            String taskName = args.getString("task_name");
 
-            LambdaQueryWrapper<MigrationTaskEntity> wrapper = new LambdaQueryWrapper<>();
-            if (sourcePath != null && !sourcePath.isEmpty()) {
-                wrapper.like(MigrationTaskEntity::getSourcePath, sourcePath);
-            }
-            if (statusFilter != null && !statusFilter.isEmpty()) {
-                wrapper.eq(MigrationTaskEntity::getStatus, statusFilter);
-            }
-            wrapper.orderByDesc(MigrationTaskEntity::getCreateTime);
-
-            List<MigrationTaskEntity> tasks = taskMapper.selectList(wrapper);
-
-            if ("task_stats".equals(queryType)) {
-                JSONObject stats = new JSONObject();
-                stats.put("total", tasks.size());
-                Map<String, Long> statusCount = new LinkedHashMap<>();
-                long totalSize = 0;
-                long completedSize = 0;
-                for (MigrationTaskEntity t : tasks) {
-                    String s = t.getStatus();
-                    statusCount.put(s, statusCount.getOrDefault(s, 0L) + 1);
-                    if (t.getTotalSize() != null) totalSize += t.getTotalSize();
-                    if (t.getCompletedSize() != null) completedSize += t.getCompletedSize();
-                }
-                stats.put("status_breakdown", statusCount);
-                stats.put("total_size_bytes", totalSize);
-                stats.put("completed_size_bytes", completedSize);
-                return stats.toJSONString();
-            } else if ("task_detail".equals(queryType) && !tasks.isEmpty()) {
-                JSONArray arr = new JSONArray();
-                for (MigrationTaskEntity t : tasks) {
-                    arr.add(taskToJson(t));
-                }
-                return arr.toJSONString();
-            } else if ("agent_status".equals(queryType)) {
+            if ("agent_status".equals(queryType)) {
                 List<AgentNodeEntity> agents = agentNodeMapper.selectList(null);
                 JSONArray arr = new JSONArray();
                 for (AgentNodeEntity a : agents) {
@@ -393,10 +364,43 @@ public class AiChatService {
                     arr.add(o);
                 }
                 return arr.toJSONString();
+            }
+
+            // task_stats / task_list / task_detail 查询 task_instance 表
+            LambdaQueryWrapper<TaskInstanceEntity> wrapper = new LambdaQueryWrapper<>();
+            if (sourcePath != null && !sourcePath.isEmpty()) {
+                wrapper.like(TaskInstanceEntity::getSourcePath, sourcePath);
+            }
+            if (statusFilter != null && !statusFilter.isEmpty()) {
+                wrapper.eq(TaskInstanceEntity::getStatus, statusFilter);
+            }
+            if (taskName != null && !taskName.isEmpty()) {
+                wrapper.like(TaskInstanceEntity::getInstanceName, taskName);
+            }
+            wrapper.orderByDesc(TaskInstanceEntity::getCreateTime);
+
+            List<TaskInstanceEntity> instances = instanceMapper.selectList(wrapper);
+
+            if ("task_stats".equals(queryType)) {
+                JSONObject stats = new JSONObject();
+                stats.put("total", instances.size());
+                Map<String, Long> statusCount = new LinkedHashMap<>();
+                long totalSize = 0;
+                long completedSize = 0;
+                for (TaskInstanceEntity t : instances) {
+                    String s = t.getStatus();
+                    statusCount.put(s, statusCount.getOrDefault(s, 0L) + 1);
+                    if (t.getTotalSize() != null) totalSize += t.getTotalSize();
+                    if (t.getCompletedSize() != null) completedSize += t.getCompletedSize();
+                }
+                stats.put("status_breakdown", statusCount);
+                stats.put("total_size_bytes", totalSize);
+                stats.put("completed_size_bytes", completedSize);
+                return stats.toJSONString();
             } else {
                 JSONArray arr = new JSONArray();
-                for (MigrationTaskEntity t : tasks) {
-                    arr.add(taskToJson(t));
+                for (TaskInstanceEntity t : instances) {
+                    arr.add(instanceToJson(t));
                 }
                 return arr.toJSONString();
             }
@@ -405,10 +409,10 @@ public class AiChatService {
         }
     }
 
-    private JSONObject taskToJson(MigrationTaskEntity t) {
+    private JSONObject instanceToJson(TaskInstanceEntity t) {
         JSONObject o = new JSONObject();
         o.put("id", t.getId());
-        o.put("taskName", t.getTaskName());
+        o.put("instanceName", t.getInstanceName());
         o.put("sourcePath", t.getSourcePath());
         o.put("targetPath", t.getTargetPath());
         o.put("status", t.getStatus());
