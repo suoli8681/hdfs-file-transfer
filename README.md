@@ -33,12 +33,13 @@ HDFS 文件迁移平台，用于在不同 Hadoop 集群间通过 `hadoop distcp`
 
 ### 数据流
 
-1. 用户通过 Web 界面创建迁移任务，选择源集群、目标集群、路径、Agent
-2. Server 调度器（10s 间隔）将 `pending` 状态的任务分配给指定 Agent，状态变为 `dispatching`
-3. Agent 轮询（15s 间隔）拉取 `dispatching` 任务，CAS 改为 `running`，执行 `hadoop distcp`
-4. Agent 实时上报进度（心跳 10s 间隔 + 状态推送）
-5. distcp 完成后 Agent 自动执行数据校验（文件数 + 数据量比对）
-6. 校验结果和操作记录入库，前端可查看
+1. 用户通过 Web 界面创建迁移任务（draft），选择源集群、目标集群、路径、Agent
+2. 用户点击上线（online），定时任务自动调度或用户手动执行生成任务实例
+3. Server 调度器（10s 间隔）将 `pending` 状态的实例分配给指定 Agent，状态变为 `dispatching`
+4. Agent 轮询（15s 间隔）拉取 `dispatching` 实例，CAS 改为 `running`，执行 `hadoop distcp`
+5. Agent 实时上报进度（心跳 10s 间隔 + 状态推送）
+6. distcp 完成后 Agent 自动执行数据校验（文件数 + 数据量比对）
+7. 校验结果和操作记录入库，前端可查看
 
 ## 功能特性
 
@@ -50,7 +51,8 @@ HDFS 文件迁移平台，用于在不同 Hadoop 集群间通过 `hadoop distcp`
 - **Agent 管理**：监控 Agent 节点状态、CPU/内存使用率
 - **用户管理**：系统用户增删改查、启用/冻结、密码重置（仅 admin）
 - **AI 助手**：基于 OpenAI 兼容 API 的自然语言对话，支持 Function Calling 查询迁移数据
-- **告警通知**：任务失败、Agent 离线、校验不一致时推送钉钉/企业微信告警
+- **告警通知**：任务失败、Agent 上线/离线、校验不一致时推送钉钉/企业微信告警，支持按告警类型独立开关，任务级别可控制是否告警
+- **告警配置**：Web 界面配置通知渠道（企业微信/钉钉 webhook），按告警类型启用/禁用，支持在线测试
 - **操作审计**：记录任务创建/编辑/启动/停止/终止/删除操作及操作人
 - **日期占位符**：支持路径中使用 `${YYYY-MM-DD}`、`${YYYY-MM-DD+1}` 等动态日期
 
@@ -71,12 +73,13 @@ hdfs-file-transfer/
 ├── server/                  (后端服务)
 │   └── src/main/java/com/hdfs/transfer/server/
 │       ├── api/             (AuthController, OpenApiController)
-│       ├── controller/      (AgentController, AiChatController, ClusterConfigController,
-│       │                    DashboardController, LogController, MigrationTaskController,
-│       │                    SysUserController, TaskOperationLogController, VerifyController)
-│       ├── service/         (10 个 Service)
-│       ├── entity/          (10 个 Entity)
-│       ├── mapper/          (10 个 Mapper，仅 SysUserMapper 有 XML)
+│       ├── controller/      (AgentController, AiChatController, AlertConfigController,
+│       │                    ClusterConfigController, DashboardController, LogController,
+│       │                    LoginLogController, MigrationTaskController, SysUserController,
+│       │                    TaskInstanceController, TaskOperationLogController, VerifyController)
+│       ├── service/         (13 个 Service)
+│       ├── entity/          (14 个 Entity)
+│       ├── mapper/          (14 个 Mapper，仅 SysUserMapper 有 XML)
 │       ├── security/        (SecurityConfig, JwtTokenProvider, JwtAuthenticationFilter)
 │       ├── scheduler/       (TaskDispatchJob, AgentMonitorJob, LogCleanupJob)
 │       ├── monitor/         (AgentReportController - Agent 上报专用)
@@ -96,9 +99,9 @@ hdfs-file-transfer/
 │       └── config/          (AgentConfig, ScheduleConfig, TaskExecutorConfig)
 ├── web/                     (前端)
 │   └── src/
-│       ├── api/             (11 个 API 模块)
+│       ├── api/             (13 个 API 模块)
 │       ├── components/      (Layout.vue)
-│       ├── views/           (13 个页面)
+│       ├── views/           (16 个页面)
 │       ├── composables/     (auth.js - 未实际使用)
 │       ├── router/          (Vue Router + 认证守卫)
 │       └── utils/           (工具函数)
@@ -110,20 +113,24 @@ hdfs-file-transfer/
 
 ## 数据库设计
 
-数据库名：`hdfs_transfer`，共 10 张表：
+数据库名：`hdfs_transfer`，共 14 张表：
 
 | 表名 | 说明 |
 |------|------|
 | `cluster_config` | 集群配置（名称、NameNode 地址、HDFS 用户等） |
 | `agent_node` | Agent 节点（状态、心跳、CPU/内存） |
-| `migration_task` | 迁移任务（源/目标路径、状态、进度、时间） |
+| `migration_task` | 迁移任务模板（源/目标路径、状态、告警开关等） |
+| `task_instance` | 任务实例（每次执行生成的实例，含进度、重试等） |
 | `task_log` | 任务执行日志（来自 Agent 的 distcp 输出） |
 | `verify_result` | 校验结果（文件数/数据量对比、差异文件列表） |
 | `sys_user` | 系统用户（BCrypt 密码），含默认 admin 用户 |
-| `task_operation_log` | 任务操作记录（创建/编辑/启动/停止/终止/删除，含操作人） |
+| `task_operation_log` | 任务操作记录（创建/编辑/上线/下线/执行/终止/删除，含操作人） |
 | `ai_config` | AI 模型配置（API 地址、密钥、模型名、温度等） |
 | `ai_conversation` | AI 对话会话（标题、用户名、配置 ID） |
 | `ai_message` | AI 对话消息（会话 ID、角色、内容） |
+| `login_log` | 登录日志（用户名、登录 IP、登录时间） |
+| `alert_config` | 告警类型配置（告警类型、启用状态、备注） |
+| `alert_webhook` | 告警通知渠道（企业微信/钉钉 webhook 地址、启用状态） |
 
 ## API 概览
 
@@ -137,14 +144,24 @@ hdfs-file-transfer/
 ### 任务 API（`/api/tasks/**`）
 - `GET /tasks/page` — 分页查询任务
 - `GET /tasks/{id}` — 获取任务详情
+- `GET /tasks/{id}/instances` — 查询任务实例列表
+- `GET /tasks/export` — 导出任务列表 Excel
 - `POST /tasks` — 创建任务
 - `PUT /tasks` — 编辑任务
-- `POST /tasks/{id}/start` — 启动任务
-- `POST /tasks/{id}/stop` — 停止任务
-- `POST /tasks/{id}/force-kill` — 强制终止任务
+- `PUT /tasks/{id}/alert` — 更新任务告警开关
+- `POST /tasks/{id}/online` — 上线任务
+- `POST /tasks/{id}/offline` — 下线任务
+- `POST /tasks/{id}/execute` — 执行任务（生成实例）
+- `POST /tasks/{id}/force-kill` — 强制终止任务实例
 - `GET /tasks/dispatch` — Agent 拉取任务（公开）
 - `POST /tasks/{id}/status` — Agent 上报状态/进度（公开）
 - `DELETE /tasks/{id}` — 删除任务
+
+### 任务实例 API（`/api/task-instances/**`）
+- `GET /task-instances/page` — 分页查询实例
+- `GET /task-instances/{id}` — 获取实例详情
+- `POST /task-instances/{id}/force-kill` — 强制终止实例
+- `GET /task-instances/export` — 导出实例列表 Excel
 
 ### 集群 API（`/api/clusters/**`）
 - 分页查询、列表、详情、CRUD、连通性测试
@@ -170,6 +187,8 @@ hdfs-file-transfer/
 - **校验**（`/api/verify/**`）：分页查询、最新结果
 - **操作记录**（`/api/task-logs/**`）：分页查询、按任务查询
 - **仪表盘**（`/api/dashboard/**`）：总览统计、最近任务
+- **登录日志**（`/api/login-logs/**`）：分页查询登录记录
+- **告警配置**（`/api/alert-config`）：查询配置、更新告警类型/渠道、测试 webhook
 - **Open API**（`/open-api/**`）：外部集成接口（注：需 JWT 认证）
 
 ## 部署说明
@@ -191,7 +210,7 @@ hdfs-file-transfer/
 mysql -h <db_host> -u root -p < server/src/main/resources/schema.sql
 ```
 
-schema.sql 会创建数据库 `hdfs_transfer`、10 张表，并插入默认管理员账号（admin/admin123）。
+schema.sql 会创建数据库 `hdfs_transfer`、14 张表，并插入默认管理员账号（admin/admin123）及默认告警配置。
 所有表使用 `CREATE TABLE IF NOT EXISTS`，可安全重复执行。
 
 ### 2. 配置修改
@@ -332,7 +351,7 @@ TaskPollerService(15s) → Agent 拉取任务 → CAS → status=running
   ↓
 PathExpressionResolver → 替换日期占位符 ${YYYY-MM-DD+N}
   ↓
-PreCheckService → 检查 Hadoop 环境 + 源路径 + 目标空间
+PreCheckService → 检查 Hadoop 环境 + 源路径 + 目标路径（返回 PreCheckResult 含错误信息）
   ↓
 getSourceStats → hadoop fs -count + du -s 获取总量
   ↓
@@ -352,24 +371,18 @@ distcp 失败 → status=failed → RetryHandler → 加 -update 重试（最多
 ### 任务状态流转
 
 ```
-draft → pending → dispatching → running → success
-                          │              ↓
-                          │          failed → retrying → running → ...
-                          ↓
-                       stopped（手动停止）/ killed（强制终止 + HDFS 清理）
+draft → online → execute → task_instance(pending → dispatching → running → success/failed)
+  ↓                ↓                                                    ↓
+offline      下线后不再生成新实例                              failed → retrying → running → ...
+                                                                  ↓
+                                                           stopped / killed（强制终止 + HDFS 清理）
 ```
 
 | 状态 | 说明 | 前端按钮 |
 |------|------|----------|
-| draft | 草稿（创建后初始状态） | 编辑、启动、操作记录、删除 |
-| pending | 待执行（用户点击启动后） | 停止、操作记录、删除 |
-| dispatching | 派发中（Server 已分配 Agent） | 停止、操作记录 |
-| running | 运行中（Agent 已拉取执行） | 强制终止、日志、操作记录 |
-| retrying | 重试中（失败后自动重试） | 强制终止、日志、操作记录 |
-| success | 已完成 | 日志、校验结果、操作记录 |
-| failed | 失败 | 日志、操作记录 |
-| stopped | 已停止 | 日志、操作记录、删除 |
-| killed | 已终止（强制终止 + HDFS 清理） | 日志、操作记录 |
+| draft | 草稿（创建后初始状态） | 编辑、上线、操作记录、删除 |
+| online | 已上线（可执行或定时调度） | 执行、查看实例、操作记录、下线 |
+| offline | 已下线（不再生成新实例） | 上线、编辑、查看实例、操作记录、删除 |
 
 ### 认证流程
 
