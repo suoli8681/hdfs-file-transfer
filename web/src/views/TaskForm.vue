@@ -45,6 +45,18 @@
       </el-form-item>
       <el-form-item label="distcp参数">
         <el-input v-model="form.distcpOptions" type="textarea" :rows="3" placeholder="-D mapreduce.job.name=myjob -update -skipcrccheck" />
+        <div style="font-size:12px;color:#909399;margin-top:4px;line-height:1.8">
+          常用参数：
+          <el-popover placement="bottom-start" :width="500" trigger="hover">
+            <template #reference>
+              <el-link type="primary" :underline="false" style="font-size:12px">查看示例</el-link>
+            </template>
+            <el-table :data="distcpParams" size="small" border>
+              <el-table-column prop="param" label="参数" width="260" />
+              <el-table-column prop="desc" label="说明" />
+            </el-table>
+          </el-popover>
+        </div>
       </el-form-item>
       <el-form-item label="执行Agent" prop="agentId">
         <el-select v-model="form.agentId" filterable placeholder="选择Agent" style="width:100%">
@@ -90,6 +102,23 @@ const dateExprExamples = [
   { expr: '${YYYYMMDDHHmm-1}', unit: '分钟', example: '202607271729' },
   { expr: '${YYYYMMDDHHmmss}', unit: '—', example: '20260727173025' },
   { expr: '${YYYYMMDDHHmmss-1}', unit: '秒', example: '20260727173024' }
+]
+
+const distcpParams = [
+  { param: '-update', desc: '增量同步，目标已存在的文件跳过（大小一致时）' },
+  { param: '-skipcrccheck', desc: '跳过 CRC 校验，加快同步速度' },
+  { param: '-overwrite', desc: '覆盖目标已存在的文件' },
+  { param: '-delete', desc: '删除目标端源端不存在的文件（慎用）' },
+  { param: '-p', desc: '保留权限、属主、组、时间戳等属性' },
+  { param: '-i', desc: '忽略失败，继续复制其他文件' },
+  { param: '-atomic', desc: '原子性提交，全部成功后才可见' },
+  { param: '-m <N>', desc: '指定 map 任务数量，如 -m 10' },
+  { param: '-bandwidth <MB>', desc: '限制每个 map 的带宽，如 -bandwidth 50（MB/s）' },
+  { param: '-D mapreduce.job.name=xxx', desc: '指定 MapReduce 作业名称' },
+  { param: '-D mapreduce.job.queuename=xxx', desc: '指定提交到的 YARN 队列' },
+  { param: '-D dfs.replication=3', desc: '指定目标端副本数' },
+  { param: '-D mapreduce.job.maxmap=20', desc: '限制最大 map 数量' },
+  { param: '-strategy dynamic', desc: '使用动态策略分配任务（适用于大量小文件）' }
 ]
 
 const requiredMsg = (label) => { return { required: true, message: '请选择' + label, trigger: 'change' } }
