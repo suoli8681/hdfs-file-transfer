@@ -7,6 +7,9 @@ spring:
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
   datasource:
     url: jdbc:mysql://192.168.1.125:3306/hdfs_transfer?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
     username: root

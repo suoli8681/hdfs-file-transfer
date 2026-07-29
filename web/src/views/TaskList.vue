@@ -111,7 +111,6 @@
           <el-descriptions-item label="已完成数据量">{{ $formatSize(detailData.completedSize) }}</el-descriptions-item>
           <el-descriptions-item label="启动时间">{{ detailData.lastExecTime || '--' }}</el-descriptions-item>
           <el-descriptions-item label="完成时间">{{ detailData.completeTime || '--' }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailData.taskType === 'scheduled'" label="下次执行时间">{{ detailData.nextExecTime || '--' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ detailData.createTime || '--' }}</el-descriptions-item>
           <el-descriptions-item v-if="detailData.errorMsg" label="错误信息" :span="2">
             <span style="color:#f56c6c">{{ detailData.errorMsg }}</span>
