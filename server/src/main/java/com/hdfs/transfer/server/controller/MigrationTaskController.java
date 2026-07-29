@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
 import java.net.URLEncoder;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -67,15 +68,16 @@ public class MigrationTaskController {
         headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
         String[] headers = {"任务名称", "任务类型", "源集群", "源路径", "目标集群", "目标路径",
-                "distcp参数", "执行Agent", "状态", "总文件数", "已完成文件数",
-                "总数据量", "已完成数据量", "重试次数", "最大重试次数",
-                "启动时间", "完成时间", "创建时间", "错误信息"};
+                "distcp参数", "执行Agent", "状态", "最大重试次数",
+                "最近执行时间", "创建时间"};
         Row headerRow = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
             Cell cell = headerRow.createCell(i);
             cell.setCellValue(headers[i]);
             cell.setCellStyle(headerStyle);
         }
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
         for (int i = 0; i < list.size(); i++) {
             MigrationTaskEntity task = list.get(i);
@@ -89,16 +91,9 @@ public class MigrationTaskController {
             row.createCell(6).setCellValue(task.getDistcpOptions() != null ? task.getDistcpOptions() : "");
             row.createCell(7).setCellValue(task.getAgentId() != null ? task.getAgentId() : "");
             row.createCell(8).setCellValue(task.getStatus() != null ? task.getStatus() : "");
-            row.createCell(9).setCellValue(task.getTotalFiles() != null ? task.getTotalFiles() : 0);
-            row.createCell(10).setCellValue(task.getCompletedFiles() != null ? task.getCompletedFiles() : 0);
-            row.createCell(11).setCellValue(task.getTotalSize() != null ? task.getTotalSize() : 0);
-            row.createCell(12).setCellValue(task.getCompletedSize() != null ? task.getCompletedSize() : 0);
-            row.createCell(13).setCellValue(task.getRetryCount() != null ? task.getRetryCount() : 0);
-            row.createCell(14).setCellValue(task.getMaxRetryCount() != null ? task.getMaxRetryCount() : 0);
-            row.createCell(15).setCellValue(task.getLastExecTime() != null ? task.getLastExecTime() : "");
-            row.createCell(16).setCellValue(task.getCompleteTime() != null ? task.getCompleteTime() : "");
-            row.createCell(17).setCellValue(task.getCreateTime() != null ? task.getCreateTime().toString() : "");
-            row.createCell(18).setCellValue(task.getErrorMsg() != null ? task.getErrorMsg() : "");
+            row.createCell(9).setCellValue(task.getMaxRetryCount() != null ? task.getMaxRetryCount() : 0);
+            row.createCell(10).setCellValue(task.getLastExecTime() != null ? task.getLastExecTime() : "");
+            row.createCell(11).setCellValue(task.getCreateTime() != null ? task.getCreateTime().format(dtf) : "");
         }
 
         for (int i = 0; i < headers.length; i++) {

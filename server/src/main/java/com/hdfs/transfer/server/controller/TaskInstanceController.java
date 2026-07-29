@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
 import java.net.URLEncoder;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @RestController
@@ -66,13 +67,15 @@ public class TaskInstanceController {
 
         String[] headers = {"实例名称", "源集群", "源路径", "目标集群", "目标路径",
                 "distcp参数", "执行Agent", "状态", "总文件数", "已完成文件数",
-                "总数据量", "已完成数据量", "重试次数", "启动时间", "完成时间", "错误信息"};
+                "总数据量", "已完成数据量", "重试次数", "启动时间", "完成时间", "创建时间", "错误信息"};
         Row headerRow = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {
             Cell cell = headerRow.createCell(i);
             cell.setCellValue(headers[i]);
             cell.setCellStyle(headerStyle);
         }
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
         for (int i = 0; i < list.size(); i++) {
             TaskInstanceEntity inst = list.get(i);
@@ -92,7 +95,8 @@ public class TaskInstanceController {
             row.createCell(12).setCellValue(inst.getRetryCount() != null ? inst.getRetryCount() : 0);
             row.createCell(13).setCellValue(inst.getLastExecTime() != null ? inst.getLastExecTime() : "");
             row.createCell(14).setCellValue(inst.getCompleteTime() != null ? inst.getCompleteTime() : "");
-            row.createCell(15).setCellValue(inst.getErrorMsg() != null ? inst.getErrorMsg() : "");
+            row.createCell(15).setCellValue(inst.getCreateTime() != null ? inst.getCreateTime().format(dtf) : "");
+            row.createCell(16).setCellValue(inst.getErrorMsg() != null ? inst.getErrorMsg() : "");
         }
 
         for (int i = 0; i < headers.length; i++) {
