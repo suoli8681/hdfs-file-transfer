@@ -19,6 +19,9 @@ hdfs:
       retry-enabled: true
       retry-max-count: 3
       work-dir: /opt/hdfs-transfer/agent/work
-      hadoop-home: /opt/hadoop
+      # Hadoop 安装路径，用于执行 hadoop distcp / hadoop fs 等命令
+      hadoop-home: /opt/cloudera/parcels/CDH/lib/hadoop
+      # YARN 可执行文件路径，用于恢复任务时查询 YARN 作业状态，默认 {hadoop-home}/bin/yarn
+      yarn-bin: /opt/cloudera/parcels/CDH/lib/hadoop-yarn
       # Task timeout in hours, 0 = no timeout
       task-timeout-hours: 0

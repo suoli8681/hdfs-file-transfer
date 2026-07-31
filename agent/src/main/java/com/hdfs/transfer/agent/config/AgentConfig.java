@@ -30,8 +30,11 @@ public class AgentConfig {
     @Value("${hdfs.transfer.agent.work-dir:/opt/hdfs-transfer/agent/work}")
     private String workDir;
 
-    @Value("${hdfs.transfer.agent.hadoop-home:/opt/hadoop}")
+    @Value("${hdfs.transfer.agent.hadoop-home:/opt/cloudera/parcels/CDH/lib/hadoop}")
     private String hadoopHome;
+
+    @Value("${hdfs.transfer.agent.yarn-bin:/opt/cloudera/parcels/CDH/lib/hadoop-yarn}")
+    private String yarnBin;
 
     @Value("${server.port:8081}")
     private int agentPort;
@@ -51,6 +54,12 @@ public class AgentConfig {
     public int getRetryMaxCount() { return retryMaxCount; }
     public String getWorkDir() { return workDir; }
     public String getHadoopHome() { return hadoopHome; }
+    public String getYarnBin() {
+        if (yarnBin == null || yarnBin.isEmpty()) {
+            return hadoopHome + "/bin/yarn";
+        }
+        return yarnBin + "/bin/yarn";
+    }
     public int getAgentPort() { return agentPort; }
     public int getTaskTimeoutHours() { return taskTimeoutHours; }
 

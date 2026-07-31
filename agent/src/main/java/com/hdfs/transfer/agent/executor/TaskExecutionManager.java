@@ -42,6 +42,7 @@ public class TaskExecutionManager {
     private final PreCheckService preCheckService;
     private final RetryHandler retryHandler;
     private final ServerCommunicator communicator;
+    private final TaskStateStore taskStateStore;
 
     private final Map<Long, TaskProgressDTO> taskProgressMap = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastReportTimeMap = new ConcurrentHashMap<>();
@@ -53,7 +54,8 @@ public class TaskExecutionManager {
     public TaskExecutionManager(AgentConfig agentConfig, ShellScriptGenerator scriptGenerator,
                                 ShellProcessManager processManager, LogCollector logCollector,
                                 DataVerifier dataVerifier, PreCheckService preCheckService,
-                                RetryHandler retryHandler, ServerCommunicator communicator) {
+                                RetryHandler retryHandler, ServerCommunicator communicator,
+                                TaskStateStore taskStateStore) {
         this.agentConfig = agentConfig;
         this.scriptGenerator = scriptGenerator;
         this.processManager = processManager;
@@ -62,6 +64,7 @@ public class TaskExecutionManager {
         this.preCheckService = preCheckService;
         this.retryHandler = retryHandler;
         this.communicator = communicator;
+        this.taskStateStore = taskStateStore;
     }
 
     public void executeTask(Long taskId, String sourcePath, String targetPath,
@@ -117,9 +120,21 @@ public class TaskExecutionManager {
         // Report initial state with totals
         communicator.reportTaskStatus(taskId, "running", 0, 0, totalFiles, totalSize, null);
 
+        TaskStateStore.TaskMetadata metadata = new TaskStateStore.TaskMetadata();
+        metadata.setTaskId(taskId);
+        metadata.setSourcePath(sourcePath);
+        metadata.setTargetPath(targetPath);
+        metadata.setSourceCluster(sourceCluster);
+        metadata.setTargetCluster(targetCluster);
+        metadata.setDistcpOptions(distcpOptions);
+        metadata.setTotalFiles(totalFiles);
+        metadata.setTotalSize(totalSize);
+        taskStateStore.save(metadata);
+
         Process process = null;
         Thread watchdog = null;
         try {
+            logCollector.replayLogs(taskId);
             String script = scriptGenerator.generateDistcpScript(
                     taskId, sourcePath, targetPath, sourceCluster, targetCluster, distcpOptions, workDir);
             process = processManager.startScript(taskId, script, workDir);
@@ -197,6 +212,8 @@ public class TaskExecutionManager {
             taskTargetPathMap.remove(taskId);
             taskSourcePathMap.remove(taskId);
             killedTaskIds.remove(taskId);
+            logCollector.cleanupTaskLogs(taskId);
+            taskStateStore.remove(taskId);
         }
     }
 
