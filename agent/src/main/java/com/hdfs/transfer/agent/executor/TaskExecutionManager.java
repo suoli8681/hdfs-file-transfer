@@ -43,19 +43,21 @@ public class TaskExecutionManager {
     private final RetryHandler retryHandler;
     private final ServerCommunicator communicator;
     private final TaskStateStore taskStateStore;
+    private final SourceFileLister sourceFileLister;
 
     private final Map<Long, TaskProgressDTO> taskProgressMap = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastReportTimeMap = new ConcurrentHashMap<>();
     private final Map<Long, Integer> reportLineCountMap = new ConcurrentHashMap<>();
     private final Map<Long, String> taskTargetPathMap = new ConcurrentHashMap<>();
     private final Map<Long, String> taskSourcePathMap = new ConcurrentHashMap<>();
+    private final Map<Long, List<String>> taskFileListMap = new ConcurrentHashMap<>();
     private final Set<Long> killedTaskIds = ConcurrentHashMap.newKeySet();
 
     public TaskExecutionManager(AgentConfig agentConfig, ShellScriptGenerator scriptGenerator,
                                 ShellProcessManager processManager, LogCollector logCollector,
                                 DataVerifier dataVerifier, PreCheckService preCheckService,
                                 RetryHandler retryHandler, ServerCommunicator communicator,
-                                TaskStateStore taskStateStore) {
+                                TaskStateStore taskStateStore, SourceFileLister sourceFileLister) {
         this.agentConfig = agentConfig;
         this.scriptGenerator = scriptGenerator;
         this.processManager = processManager;
@@ -65,6 +67,7 @@ public class TaskExecutionManager {
         this.retryHandler = retryHandler;
         this.communicator = communicator;
         this.taskStateStore = taskStateStore;
+        this.sourceFileLister = sourceFileLister;
     }
 
     public void executeTask(Long taskId, String sourcePath, String targetPath,
@@ -108,6 +111,10 @@ public class TaskExecutionManager {
             return;
         }
 
+        List<String> sourceFileList = sourceFileLister.listFiles(sourcePath);
+        taskFileListMap.put(taskId, sourceFileList);
+        log.info("Task {} listed {} source files", taskId, sourceFileList.size());
+
         String workDir = agentConfig.getWorkDir() + File.separator + "task_" + taskId;
 
         TaskProgressDTO progress = new TaskProgressDTO();
@@ -129,6 +136,7 @@ public class TaskExecutionManager {
         metadata.setDistcpOptions(distcpOptions);
         metadata.setTotalFiles(totalFiles);
         metadata.setTotalSize(totalSize);
+        metadata.setSourceFileList(sourceFileList);
         taskStateStore.save(metadata);
 
         Process process = null;
@@ -187,7 +195,7 @@ public class TaskExecutionManager {
                 communicator.reportTaskStatus(taskId, "success", completedFiles, completedSizeBytes,
                         totalFiles, totalSize, null);
                 retryHandler.clearRetryCount(taskId);
-                dataVerifier.verify(taskId, sourcePath, targetPath);
+                dataVerifier.verify(taskId, sourcePath, targetPath, sourceFileList);
             } else {
                 progress.setStatus("failed");
                 String errorMsg = "distcp exit code: " + exitCode;
@@ -211,6 +219,7 @@ public class TaskExecutionManager {
             taskProgressMap.remove(taskId);
             taskTargetPathMap.remove(taskId);
             taskSourcePathMap.remove(taskId);
+            taskFileListMap.remove(taskId);
             killedTaskIds.remove(taskId);
             logCollector.cleanupTaskLogs(taskId);
             taskStateStore.remove(taskId);
@@ -352,59 +361,134 @@ public class TaskExecutionManager {
     public boolean forceKillTask(Long taskId) {
         killedTaskIds.add(taskId);
         processManager.killProcess(taskId);
+        killYarnApplication(taskId);
         taskProgressMap.remove(taskId);
 
         String targetPath = taskTargetPathMap.remove(taskId);
         String sourcePath = taskSourcePathMap.remove(taskId);
+        List<String> fileList = taskFileListMap.remove(taskId);
         if (targetPath != null && !targetPath.isEmpty() && sourcePath != null && !sourcePath.isEmpty()) {
-            cleanupTargetPath(taskId, sourcePath, targetPath);
+            cleanupTargetPath(taskId, sourcePath, targetPath, fileList);
         } else {
             log.warn("ForceKill: task {} sourcePath or targetPath unknown, skipping cleanup", taskId);
         }
         return true;
     }
 
-    private void cleanupTargetPath(Long taskId, String sourcePath, String targetPath) {
-        String srcBasename = sourcePath;
-        int lastSlash = sourcePath.lastIndexOf('/');
-        if (lastSlash >= 0 && lastSlash < sourcePath.length() - 1) {
-            srcBasename = sourcePath.substring(lastSlash + 1);
+    private void killYarnApplication(Long taskId) {
+        String appId = findYarnApplicationId(taskId);
+        if (appId == null) {
+            log.info("Task {} no YARN application found, skipping yarn kill", taskId);
+            return;
         }
-
-        String actualTarget;
-        if (targetPath.endsWith("/")) {
-            actualTarget = targetPath + srcBasename;
-        } else {
-            actualTarget = targetPath + "/" + srcBasename;
-        }
-
-        log.info("Task {} force-kill: source={}, target={}, cleanup={}",
-                taskId, sourcePath, targetPath, actualTarget);
         try {
-            String hadoopHome = agentConfig.getHadoopHome();
-            String hadoopBin = hadoopHome + "/bin/hadoop";
-
-            log.info("Task {} cleanup: hadoop fs -rm -r {}", taskId, actualTarget);
-            ProcessBuilder pb = new ProcessBuilder(hadoopBin, "fs", "-rm", "-r", actualTarget);
+            String yarnBin = agentConfig.getYarnBin();
+            log.info("Task {} killing YARN application: {}", taskId, appId);
+            ProcessBuilder pb = new ProcessBuilder(yarnBin, "application", "-kill", appId);
             pb.redirectErrorStream(true);
-            Process rmProcess = pb.start();
+            Process process = pb.start();
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(rmProcess.getInputStream()))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.info("Task {} cleanup: {}", taskId, line);
-                    logCollector.collectLog(taskId, "[CLEANUP] " + line);
+                    log.info("Task {} yarn kill: {}", taskId, line);
+                    logCollector.collectLog(taskId, "[KILL] " + line);
                 }
             }
-            int exitCode = rmProcess.waitFor();
+            int exitCode = process.waitFor();
             if (exitCode == 0) {
-                log.info("Task {} cleanup completed successfully", taskId);
+                log.info("Task {} YARN application {} killed successfully", taskId, appId);
             } else {
-                log.warn("Task {} cleanup exited with code {}", taskId, exitCode);
+                log.warn("Task {} YARN application kill exited with code {}", taskId, exitCode);
             }
         } catch (Exception e) {
-            log.error("Task {} cleanup failed", taskId, e);
+            log.error("Task {} failed to kill YARN application", taskId, e);
         }
+    }
+
+    private String findYarnApplicationId(Long taskId) {
+        try {
+            String yarnBin = agentConfig.getYarnBin();
+            String jobName = "hdfs-transfer-task-" + taskId;
+            ProcessBuilder pb = new ProcessBuilder(yarnBin, "application", "-list");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains(jobName)) {
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length > 0) {
+                            return parts[0];
+                        }
+                    }
+                }
+            }
+            process.waitFor();
+        } catch (Exception e) {
+            log.warn("Task {} failed to find YARN application", taskId, e);
+        }
+        return null;
+    }
+
+    private void cleanupTargetPath(Long taskId, String sourcePath, String targetPath, List<String> fileList) {
+        if (fileList == null || fileList.isEmpty()) {
+            log.warn("Task {} no file list available, skipping cleanup", taskId);
+            return;
+        }
+
+        String hadoopBin = agentConfig.getHadoopHome() + "/bin/hadoop";
+        String tgt = SourceFileLister.normalizeTargetPath(targetPath);
+        log.info("Task {} cleanup: removing {} files from target", taskId, fileList.size());
+
+        java.util.Set<String> targetDirs = new java.util.TreeSet<>((a, b) -> Integer.compare(b.length(), a.length()));
+
+        for (String sourceFilePath : fileList) {
+            String targetFilePath = SourceFileLister.getTargetFilePath(sourcePath, targetPath, sourceFilePath);
+            try {
+                ProcessBuilder pb = new ProcessBuilder(hadoopBin, "fs", "-rm", "-r", "-skipTrash", targetFilePath);
+                pb.redirectErrorStream(true);
+                Process rmProcess = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(rmProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        log.info("Task {} cleanup: {} - {}", taskId, targetFilePath, line);
+                        logCollector.collectLog(taskId, "[CLEANUP] " + targetFilePath + " " + line);
+                    }
+                }
+                rmProcess.waitFor();
+
+                int lastSlash = targetFilePath.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    String parentDir = targetFilePath.substring(0, lastSlash);
+                    if (parentDir.length() > tgt.length()) {
+                        targetDirs.add(parentDir);
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Task {} cleanup failed for file: {}", taskId, targetFilePath, e);
+            }
+        }
+
+        for (String dir : targetDirs) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(hadoopBin, "fs", "-rm", "-r", "-skipTrash", dir);
+                pb.redirectErrorStream(true);
+                Process rmProcess = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(rmProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        log.info("Task {} cleanup dir: {} - {}", taskId, dir, line);
+                    }
+                }
+                rmProcess.waitFor();
+            } catch (Exception e) {
+                log.debug("Task {} rmdir {} failed", taskId, dir);
+            }
+        }
+
+        log.info("Task {} cleanup completed", taskId);
     }
 
     public String getCurrentStatus() {

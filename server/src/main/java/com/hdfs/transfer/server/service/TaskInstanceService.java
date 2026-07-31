@@ -184,6 +184,11 @@ public class TaskInstanceService {
     public boolean forceKill(Long id) {
         TaskInstanceEntity entity = instanceMapper.selectById(id);
         if (entity == null) return false;
+        String status = entity.getStatus();
+        if ("success".equals(status) || "failed".equals(status) ||
+                "killed".equals(status) || "stopped".equals(status)) {
+            return false;
+        }
         notifyAgent(id, entity.getAgentId(), "kill");
         entity.setStatus("killed");
         entity.setCompleteTime(LocalDateTime.now().format(DTF));
@@ -212,6 +217,10 @@ public class TaskInstanceService {
                                long totalFiles, long totalSize, String status, String errorMsg) {
         TaskInstanceEntity entity = instanceMapper.selectById(instanceId);
         if (entity == null) return;
+        String currentStatus = entity.getStatus();
+        if ("killed".equals(currentStatus) || "stopped".equals(currentStatus)) {
+            return;
+        }
         entity.setCompletedFiles(completedFiles);
         entity.setCompletedSize(completedSize);
         if (totalFiles > 0) {

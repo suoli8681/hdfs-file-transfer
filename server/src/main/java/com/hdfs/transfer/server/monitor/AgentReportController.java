@@ -60,6 +60,9 @@ public class AgentReportController {
         verifyResultService.saveResult(dto);
         if ("mismatch".equals(dto.getVerifyStatus())) {
             TaskInstanceEntity instance = instanceService.getById(dto.getTaskId());
+            if (instance != null && ("killed".equals(instance.getStatus()) || "stopped".equals(instance.getStatus()))) {
+                return ApiResponse.success();
+            }
             String instanceName = instance != null ? instance.getInstanceName() : "instance-" + dto.getTaskId();
             String sourcePath = instance != null ? instance.getSourcePath() : "";
             String targetPath = instance != null ? instance.getTargetPath() : "";

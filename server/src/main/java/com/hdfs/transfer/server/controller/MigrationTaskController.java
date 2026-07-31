@@ -3,14 +3,18 @@ package com.hdfs.transfer.server.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hdfs.transfer.common.dto.ApiResponse;
 import com.hdfs.transfer.common.dto.TaskDTO;
+import com.hdfs.transfer.server.entity.ClusterConfigEntity;
 import com.hdfs.transfer.server.entity.MigrationTaskEntity;
 import com.hdfs.transfer.server.entity.TaskInstanceEntity;
+import com.hdfs.transfer.server.mapper.ClusterConfigMapper;
 import com.hdfs.transfer.server.service.MigrationTaskService;
 import com.hdfs.transfer.server.service.TaskInstanceService;
 import com.hdfs.transfer.server.alert.AlertService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.web.bind.annotation.*;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
@@ -26,11 +30,14 @@ public class MigrationTaskController {
     private final MigrationTaskService migrationTaskService;
     private final TaskInstanceService instanceService;
     private final AlertService alertService;
+    private final ClusterConfigMapper clusterConfigMapper;
 
-    public MigrationTaskController(MigrationTaskService migrationTaskService, TaskInstanceService instanceService, AlertService alertService) {
+    public MigrationTaskController(MigrationTaskService migrationTaskService, TaskInstanceService instanceService,
+                                   AlertService alertService, ClusterConfigMapper clusterConfigMapper) {
         this.migrationTaskService = migrationTaskService;
         this.instanceService = instanceService;
         this.alertService = alertService;
+        this.clusterConfigMapper = clusterConfigMapper;
     }
 
     @GetMapping("/page")
@@ -177,19 +184,38 @@ public class MigrationTaskController {
             if (!updated) {
                 continue;
             }
+            ClusterConfigEntity srcCluster = inst.getSourceClusterId() != null ?
+                    clusterConfigMapper.selectById(inst.getSourceClusterId()) : null;
+            ClusterConfigEntity tgtCluster = inst.getTargetClusterId() != null ?
+                    clusterConfigMapper.selectById(inst.getTargetClusterId()) : null;
+
             TaskDTO dto = new TaskDTO();
             dto.setTaskId(inst.getId());
             dto.setTaskName(inst.getInstanceName());
             dto.setTaskType("once");
-            dto.setSourceCluster(String.valueOf(inst.getSourceClusterId()));
-            dto.setSourcePath(inst.getSourcePath());
-            dto.setTargetCluster(String.valueOf(inst.getTargetClusterId()));
-            dto.setTargetPath(inst.getTargetPath());
+            dto.setSourceCluster(srcCluster != null ? srcCluster.getNameService() : null);
+            dto.setSourcePath(buildHdfsPath(srcCluster, inst.getSourcePath()));
+            dto.setTargetCluster(tgtCluster != null ? tgtCluster.getNameService() : null);
+            dto.setTargetPath(buildHdfsPath(tgtCluster, inst.getTargetPath()));
             dto.setDistcpOptions(inst.getDistcpOptions());
             dto.setAgentId(inst.getAgentId());
             result.add(dto);
         }
         return ApiResponse.success(result);
+    }
+
+    private String buildHdfsPath(ClusterConfigEntity cluster, String path) {
+        if (cluster == null || path == null) return path;
+        if (path.startsWith("hdfs://")) return path;
+        String ns = cluster.getNameService();
+        if (ns != null && !ns.isEmpty()) {
+            return "hdfs://" + ns + path;
+        }
+        String rpc = cluster.getNameNodeRpc();
+        if (rpc != null && !rpc.isEmpty()) {
+            return "hdfs://" + rpc + path;
+        }
+        return path;
     }
 
     @PostMapping("/{id}/status")
@@ -208,6 +234,9 @@ public class MigrationTaskController {
         migrationTaskService.updateProgress(id, completedFiles, completedSize, totalFiles, totalSize, status, errorMsg);
         if ("failed".equals(status)) {
             TaskInstanceEntity instance = instanceService.getById(id);
+            if (instance != null && "killed".equals(instance.getStatus())) {
+                return ApiResponse.success();
+            }
             String instanceName = instance != null ? instance.getInstanceName() : String.valueOf(id);
             boolean taskAlertEnabled = false;
             if (instance != null && instance.getParentTaskId() != null) {

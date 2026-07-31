@@ -4,6 +4,7 @@ import com.hdfs.transfer.agent.config.AgentConfig;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.util.List;
 
 @Component
 public class ShellScriptGenerator {
@@ -54,7 +55,7 @@ public class ShellScriptGenerator {
         return sb.toString();
     }
 
-    public String generateVerifyScript(Long taskId, String sourcePath, String targetPath) {
+    public String generateVerifyScript(Long taskId, String sourcePath, String targetPath, List<String> sourceFileList) {
         StringBuilder sb = new StringBuilder();
         sb.append("#!/bin/bash\n");
         sb.append("set -o pipefail\n\n");
@@ -65,47 +66,25 @@ public class ShellScriptGenerator {
         sb.append("TASK_ID=").append(taskId).append("\n");
         sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Verifying task $TASK_ID\"\n\n");
 
-        sb.append("SRC_PATH=\"").append(sourcePath).append("\"\n");
-        sb.append("TGT_PATH=\"").append(targetPath).append("\"\n\n");
+        sb.append("SRC_PATH=\"").append(sourcePath.replace("\"", "\\\"")).append("\"\n");
+        sb.append("TGT_PATH=\"").append(targetPath.replace("\"", "\\\"")).append("\"\n\n");
 
-        // Determine the actual target path for comparison based on distcp behavior
-        // If source is a directory (not ending with /), distcp creates targetPath/basename(sourcePath)
-        sb.append("SRC_BASENAME=$(basename \"$SRC_PATH\")\n");
-        sb.append("if [[ \"$SRC_PATH\" != */ ]]; then\n");
-        sb.append("    ACTUAL_TGT_PATH=\"$TGT_PATH/$SRC_BASENAME\"\n");
-        sb.append("else\n");
-        sb.append("    ACTUAL_TGT_PATH=\"$TGT_PATH\"\n");
-        sb.append("fi\n\n");
+        sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Getting source file sizes...\"\n");
+        for (String filePath : sourceFileList) {
+            sb.append("SRC_SIZE=$(hadoop fs -du \"").append(filePath.replace("\"", "\\\"")).append("\" 2>/dev/null | awk '{print $1}')\n");
+            sb.append("echo \"FILE_SIZE|SRC:").append(filePath).append("|${SRC_SIZE:--1}\"\n");
+        }
 
-        sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Source: $SRC_PATH\"\n");
-        sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Target (actual): $ACTUAL_TGT_PATH\"\n\n");
+        sb.append("\necho \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Getting target file sizes...\"\n");
+        for (String sourceFilePath : sourceFileList) {
+            String targetFilePath = SourceFileLister.getTargetFilePath(sourcePath, targetPath, sourceFilePath);
+            sb.append("TGT_SIZE=$(hadoop fs -du \"").append(targetFilePath.replace("\"", "\\\"")).append("\" 2>/dev/null | awk '{print $1}')\n");
+            sb.append("echo \"FILE_SIZE|TGT:").append(targetFilePath).append("|${TGT_SIZE:--1}\"\n");
+        }
 
-        sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Counting source files...\"\n");
-        sb.append("SRC_COUNT=$(hadoop fs -count \"$SRC_PATH\" 2>/dev/null | awk '{print $2}')\n");
-        sb.append("SRC_SIZE=$(hadoop fs -du -s \"$SRC_PATH\" 2>/dev/null | awk '{print $1}')\n\n");
-
-        sb.append("echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Counting target files...\"\n");
-        sb.append("TGT_COUNT=$(hadoop fs -count \"$ACTUAL_TGT_PATH\" 2>/dev/null | awk '{print $2}')\n");
-        sb.append("TGT_SIZE=$(hadoop fs -du -s \"$ACTUAL_TGT_PATH\" 2>/dev/null | awk '{print $1}')\n\n");
-
-        sb.append("echo \"VERIFY_RESULT: SRC_COUNT=$SRC_COUNT SRC_SIZE=$SRC_SIZE TGT_COUNT=$TGT_COUNT TGT_SIZE=$TGT_SIZE\"\n\n");
-
-        sb.append("if [ \"$SRC_COUNT\" = \"$TGT_COUNT\" ] && [ \"$SRC_SIZE\" = \"$TGT_SIZE\" ]; then\n");
-        sb.append("    echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Verification MATCH\"\n");
-        sb.append("    exit 0\n");
-        sb.append("else\n");
-        sb.append("    echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] Verification MISMATCH: source=$SRC_COUNT files/$SRC_SIZE bytes, target=$TGT_COUNT files/$TGT_SIZE bytes\"\n");
-
-        sb.append("    echo \"[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] Listing differences...\"\n");
-        sb.append("    hadoop fs -ls \"$SRC_PATH\" 2>/dev/null | awk '{print $8}' > /tmp/src_$TASK_ID.txt\n");
-        sb.append("    hadoop fs -ls \"$ACTUAL_TGT_PATH\" 2>/dev/null | awk '{print $8}' > /tmp/tgt_$TASK_ID.txt\n");
-        sb.append("    diff /tmp/src_$TASK_ID.txt /tmp/tgt_$TASK_ID.txt > /tmp/diff_$TASK_ID.txt 2>&1\n");
-        sb.append("    echo \"--- DIFF_LIST ---\"\n");
-        sb.append("    cat /tmp/diff_$TASK_ID.txt\n");
-        sb.append("    echo \"--- END_DIFF_LIST ---\"\n");
-        sb.append("    rm -f /tmp/src_$TASK_ID.txt /tmp/tgt_$TASK_ID.txt /tmp/diff_$TASK_ID.txt\n");
-        sb.append("    exit 1\n");
-        sb.append("fi\n");
+        sb.append("\necho \"--- DIFF_LIST ---\"\n");
+        sb.append("echo \"--- END_DIFF_LIST ---\"\n");
+        sb.append("exit 0\n");
 
         return sb.toString();
     }

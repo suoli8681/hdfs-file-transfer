@@ -163,7 +163,7 @@ public class TaskRecoveryService {
 
         communicator.reportTaskStatus(taskId, "success", totalFiles, totalSize, totalFiles, totalSize, null);
 
-        dataVerifier.verify(taskId, sourcePath, targetPath);
+        dataVerifier.verify(taskId, sourcePath, targetPath, metadata.getSourceFileList());
 
         taskStateStore.remove(taskId);
         logCollector.cleanupTaskLogs(taskId);

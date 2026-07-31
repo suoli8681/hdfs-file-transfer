@@ -95,6 +95,7 @@ public class TaskStateStore {
         private String distcpOptions;
         private long totalFiles;
         private long totalSize;
+        private List<String> sourceFileList;
 
         public Long getTaskId() { return taskId; }
         public void setTaskId(Long taskId) { this.taskId = taskId; }
@@ -112,5 +113,7 @@ public class TaskStateStore {
         public void setTotalFiles(long totalFiles) { this.totalFiles = totalFiles; }
         public long getTotalSize() { return totalSize; }
         public void setTotalSize(long totalSize) { this.totalSize = totalSize; }
+        public List<String> getSourceFileList() { return sourceFileList; }
+        public void setSourceFileList(List<String> sourceFileList) { this.sourceFileList = sourceFileList; }
     }
 }
